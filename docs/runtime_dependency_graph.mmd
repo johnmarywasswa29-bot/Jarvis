@@ -1,0 +1,57 @@
+graph TD
+    config["JarvisConfig"]
+    event_bus["EventBus"]
+    telemetry["TelemetryManager"]
+    event_logger["EventLogger"]
+    plugin_events["PluginEvents"]
+    plugin_manager["PluginManager"]
+    calendar_plugin["CalendarPlugin"]
+    permission_manager["PermissionManager"]
+    tool_registry["ToolRegistry"]
+    memory_manager["MemoryManager (V3)"]
+    chat_memory["JarvisMemoryV2"]
+    knowledge["KnowledgeEngine (RAG)"]
+    intent_router["FastIntentRouter"]
+    intent_analyzer["IntentAnalyzer"]
+    habit_manager["HabitManager"]
+    workspace_manager["WorkspaceManager"]
+    workflow_manager["WorkflowManager"]
+    proactive_manager["ProactiveManager"]
+    goal_manager["GoalManager"]
+    task_queue["TaskQueue"]
+    brain["JarvisBrain (LLM)"]
+    config -->|config| event_bus
+    config -->|config| telemetry
+    config -->|repo/logs| event_logger
+    event_bus -->|bridge_plugin_events| plugin_manager
+    plugin_events -->|events=| plugin_manager
+    config -->|config| permission_manager
+    config -->|config+perms| tool_registry
+    config -->|config| memory_manager
+    config -->|config| chat_memory
+    config -->|knowledge_root| knowledge
+    tool_registry -->|tools| intent_router
+    intent_router -->|router| intent_analyzer
+    memory_manager -->|memory| intent_analyzer
+    config -->|defaults| habit_manager
+    config -->|defaults| workspace_manager
+    config -->|defaults| workflow_manager
+    memory_manager -->|memory| proactive_manager
+    habit_manager -->|habits| proactive_manager
+    knowledge -->|rag| proactive_manager
+    workflow_manager -->|workflow_manager| proactive_manager
+    workspace_manager -->|workspace_manager| proactive_manager
+    intent_analyzer -->|intent_analyzer| proactive_manager
+    goal_manager -->|goal_manager| task_queue
+    config -->|config+tools+memory| brain
+    plugin_manager -->|load+enable (SDK)| calendar_plugin
+    memory_manager -->|PluginAPI.memory| calendar_plugin
+    knowledge -->|PluginAPI.rag| calendar_plugin
+    workflow_manager -->|PluginAPI.workflow_manager| calendar_plugin
+    workspace_manager -->|PluginAPI.workspace_manager| calendar_plugin
+    intent_analyzer -->|PluginAPI.intent_analyzer| calendar_plugin
+    habit_manager -->|PluginAPI.habit_manager| calendar_plugin
+    tool_registry -->|PluginAPI.tool_registry| calendar_plugin
+    plugin_events -->|PluginAPI.events| calendar_plugin
+    %% Startup order: workspace.start(), proactive.start(), publish APP_STARTED
+    %% Shutdown order (reverse): proactive -> workspace -> workflow -> habit -> knowledge -> memory -> plugins

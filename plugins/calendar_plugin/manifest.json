@@ -1,0 +1,10 @@
+{
+  "name": "calendar_plugin",
+  "version": "1.0.0",
+  "author": "Jarvis SDK",
+  "description": "Calendar integration: Google, Outlook, ICS, scheduling, reminders.",
+  "permissions": ["calendar", "memory", "workflows", "rag", "notifications"],
+  "required_api_version": "1.0.0",
+  "dependencies": [],
+  "entry_point": "plugin.py"
+}

@@ -1,0 +1,65 @@
+Jarvis Runtime Construction Order (build_runtime)
+============================================================
+
+L0 Config
+  - JarvisConfig  (config)
+
+L1 Observability
+  - EventBus  (event_bus)
+      injects: event_bus<-config
+  - TelemetryManager  (telemetry)
+      injects: telemetry<-config
+  - EventLogger  (event_logger)
+      injects: event_logger<-repo/logs
+
+L10 Goals/Tasks
+  - GoalManager  (goal_manager)
+  - TaskQueue  (task_queue)
+      injects: task_queue<-goal_manager
+
+L11 Orchestration
+  - JarvisBrain (LLM)  (brain)
+      injects: brain<-config+tools+memory
+
+L2 Plugins
+  - PluginEvents  (plugin_events)
+  - PluginManager  (plugin_manager)
+      injects: plugin_manager<-bridge_plugin_events, plugin_manager<-events=
+  - CalendarPlugin  (calendar_plugin)
+      injects: calendar_plugin<-load+enable (SDK), calendar_plugin<-PluginAPI.memory, calendar_plugin<-PluginAPI.rag, calendar_plugin<-PluginAPI.workflow_manager, calendar_plugin<-PluginAPI.workspace_manager, calendar_plugin<-PluginAPI.intent_analyzer, calendar_plugin<-PluginAPI.habit_manager, calendar_plugin<-PluginAPI.tool_registry, calendar_plugin<-PluginAPI.events
+
+L3 Tools
+  - PermissionManager  (permission_manager)
+      injects: permission_manager<-config
+  - ToolRegistry  (tool_registry)
+      injects: tool_registry<-config+perms
+
+L4 Memory
+  - MemoryManager (V3)  (memory_manager)
+      injects: memory_manager<-config
+  - JarvisMemoryV2  (chat_memory)
+      injects: chat_memory<-config
+  - KnowledgeEngine (RAG)  (knowledge)
+      injects: knowledge<-knowledge_root
+
+L5 Intent
+  - FastIntentRouter  (intent_router)
+      injects: intent_router<-tools
+  - IntentAnalyzer  (intent_analyzer)
+      injects: intent_analyzer<-router, intent_analyzer<-memory
+
+L6 Learning
+  - HabitManager  (habit_manager)
+      injects: habit_manager<-defaults
+
+L7 Workspace
+  - WorkspaceManager  (workspace_manager)
+      injects: workspace_manager<-defaults
+
+L8 Workflow
+  - WorkflowManager  (workflow_manager)
+      injects: workflow_manager<-defaults
+
+L9 Proactive
+  - ProactiveManager  (proactive_manager)
+      injects: proactive_manager<-memory, proactive_manager<-habits, proactive_manager<-rag, proactive_manager<-workflow_manager, proactive_manager<-workspace_manager, proactive_manager<-intent_analyzer

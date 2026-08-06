@@ -1,0 +1,10 @@
+{
+  "name": "calculator_plus",
+  "version": "1.0.0",
+  "author": "Jarvis SDK",
+  "description": "Extended calculator with history and shortcuts.",
+  "permissions": ["desktop_automation"],
+  "required_api_version": "1.0.0",
+  "dependencies": [],
+  "entry_point": "plugin.py"
+}

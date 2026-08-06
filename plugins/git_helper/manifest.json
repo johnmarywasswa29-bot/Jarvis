@@ -1,0 +1,10 @@
+{
+  "name": "git_helper",
+  "version": "1.0.0",
+  "author": "Jarvis SDK",
+  "description": "Git workflow shortcuts.",
+  "permissions": ["filesystem", "desktop_automation"],
+  "required_api_version": "1.0.0",
+  "dependencies": [],
+  "entry_point": "plugin.py"
+}

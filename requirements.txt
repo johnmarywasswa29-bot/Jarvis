@@ -1,0 +1,35 @@
+# Auto-generated minimum versions from scripts/scan_dependencies.py# Re-generate with: py scripts/scan_dependencies.py --write-requirementsbeautifulsoup4>=4.12
+duckduckgo-search>=6.0
+python-dotenv>=1.0
+duckduckgo-search>=6.0
+numpy>=1.24
+ollama>=0.4.7
+psutil>=5.9
+pvporcupine>=3.0.5
+pvrecorder>=1.2.7
+pyautogui>=0.9.54
+pygetwindow>=0.0.9
+pyttsx3>=2.90
+requests>=2.31
+sounddevice>=0.5.1
+soundfile>=0.12.1
+vosk>=0.3.45
+PyYAML>=6.0
+# Optional extras
+# Pillow>=10.0
+# PySide6>=6.6
+# asyncio-mqtt
+# chromadb>=0.5
+# fastmcp
+# PyMuPDF
+# gunicorn
+# markdown
+# ncclient
+# openai>=1.0
+# pandas
+# prometheus-client
+# sentence-transformers>=3.0
+# torch
+# uvicorn
+# weaviate
+

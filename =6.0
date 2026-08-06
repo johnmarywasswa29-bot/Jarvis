@@ -1,0 +1,6 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting PyYAML
+  Downloading pyyaml-6.0.3-cp314-cp314-win_amd64.whl.metadata (2.4 kB)
+Downloading pyyaml-6.0.3-cp314-cp314-win_amd64.whl (156 kB)
+Installing collected packages: PyYAML
+Successfully installed PyYAML-6.0.3

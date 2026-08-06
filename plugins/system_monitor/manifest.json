@@ -1,0 +1,10 @@
+{
+  "name": "system_monitor",
+  "version": "1.0.0",
+  "author": "Jarvis SDK",
+  "description": "Lightweight CPU and memory monitor.",
+  "permissions": ["filesystem"],
+  "required_api_version": "1.0.0",
+  "dependencies": [],
+  "entry_point": "plugin.py"
+}

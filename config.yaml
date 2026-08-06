@@ -1,0 +1,31 @@
+# Jarvis configuration
+
+keyword_path: "assets/jarvis.ppn"
+sensitivities: [0.6]
+
+frame_ms: 30
+threshold: 0.01
+
+stt_model_name: "small"
+stt_backend: "vosk"
+
+llm_provider: "ollama"
+llm_model: "llama3:latest"
+llm_base_url: "http://localhost:11434"
+llm_fallback_model: "llama2"
+llm_timeout_s: 12.0
+
+tts_engine: "pyttsx3"
+tts_rate: 170
+tts_volume: 0.9
+
+vision_mode: "gpt-4v"
+
+memory_persist_directory: "memory"
+memory_collection: "jarvis_memory"
+
+web_search_enabled: true
+desktop_control_enabled: true
+code_execution_enabled: true
+filesystem_enabled: true
+vision_enabled: true

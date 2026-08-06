@@ -1,0 +1,24 @@
+630 INFO: PyInstaller: 6.21.0, contrib hooks: 2026.6
+632 INFO: Python: 3.14.6
+720 INFO: Platform: Windows-11-10.0.29617-SP0
+720 INFO: Python environment: C:\Users\User NA\Desktop\jarvis\.venv
+723 INFO: wrote installer\Jarvis.spec
+724 DEBUG: Testing UPX availability ...
+729 DEBUG: UPX is not available.
+729 INFO: Removing temporary files and cleaning cache in C:\Users\User NA\AppData\Local\pyinstaller
+759 DEBUG: script: C:\Users\User NA\Desktop\jarvis\jarvis.py
+760 INFO: Module search paths (PYTHONPATH):
+['C:\\Users\\User NA\\Desktop\\jarvis',
+ 'C:\\Python314\\python314.zip',
+ 'C:\\Python314\\DLLs',
+ 'C:\\Python314\\Lib',
+ 'C:\\Python314',
+ 'C:\\Users\\User NA\\Desktop\\jarvis\\.venv',
+ 'C:\\Users\\User NA\\Desktop\\jarvis\\.venv\\Lib\\site-packages',
+ 'C:\\Users\\User NA\\Desktop\\jarvis\\.venv\\Lib\\site-packages\\win32',
+ 'C:\\Users\\User NA\\Desktop\\jarvis\\.venv\\Lib\\site-packages\\win32\\lib',
+ 'C:\\Users\\User NA\\Desktop\\jarvis\\.venv\\Lib\\site-packages\\pythonwin',
+ 'C:\\Users\\User NA\\Desktop\\jarvis']
+1266 DEBUG: discover_hook_directories: Hook directories: [('C:\\Users\\User NA\\Desktop\\jarvis\\.venv\\Lib\\site-packages\\numpy\\_pyinstaller', 0), ('C:\\Users\\User NA\\Desktop\\jarvis\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks', -1000), ('C:\\Users\\User NA\\Desktop\\jarvis\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib', -1000)]
+2891 INFO: Appending 'datas' from .spec
+ERROR: Unable to find 'C:\\Users\\User NA\\Desktop\\jarvis\\installer\\config.yaml' when adding binary and data files.
