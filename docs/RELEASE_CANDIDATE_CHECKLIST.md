@@ -48,6 +48,11 @@ Basis:
 | Duration | ~620.75s |
 | Baseline delta | 0 failures introduced |
 
+Historical reported baseline: 641 passed — unreproducible.
+
+Verified reproducible baseline:
+580 passed, 0 failed, 1 warning.
+
 Test command:
 ```
 cd "/c/Users/User NA/Desktop/jarvis" && . .venv/Scripts/activate && python -m pytest tests/ -q -p no:cacheprovider
@@ -166,7 +171,7 @@ Missing from .gitignore:
 ## J. Installation/run verification
 
 **Installation:**
-- Python 3.11+ required (3.14 active in dev)
+- Python 3.11+ supported; 3.12 recommended for production; 3.14 verified on development host only
 - `uv` or `pip` for dependencies
 - Ollama + llama3 model required for LLM features
 - `run.bat` launches UI with PySide6 fallback to CLI
@@ -195,7 +200,8 @@ python -m pytest tests/ -q -p no:cacheprovider
   - Lazy initialization optimizations
   - Orchestration layer
   - Confirmation API + UI
-  - 641-test baseline
+  - 641-test baseline (historical; unreproducible)
+  - Verified reproducible baseline: 580 passed, 0 failed, 1 warning
   - Performance measurements
   - Known limitations
 

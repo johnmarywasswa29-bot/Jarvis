@@ -207,8 +207,10 @@ Concerns:
 11. **Workspace/RAG Hooks**
     - Wire `workspace_manager` and `rag` into `CalendarPlugin.recovery_plan()` to suggest documents.
 
-12. **Upgrade path for Python**
-    - Python 3.14 is active; `COMPATIBILITY.md` recommends 3.12. Clarify supported runtime for 1.0.
+12. **Python compatibility policy**
+    - Python 3.11+ is supported.
+    - Python 3.12 is the recommended production version.
+    - Python 3.14 is currently verified on the development host, but Python 3.14 packaging compatibility has not been independently verified.
 
 ### P2 — Nice to Have
 

@@ -2,7 +2,7 @@
 
 ## Host Environment
 - OS: Windows 10
-- Python: 3.14.6
+- Python: 3.14.6 (development host observation only)
 
 ## Installed Core Runtime Dependencies
 | Package | Installed Version | Status |
@@ -69,11 +69,13 @@ Is a custom hook needed?
 |-----------|---------------|----------------------|------------------------|---------|
 | Python 3.12.x | broad | stable | best tested | preferred v1.0 release target |
 | Python 3.13.x | improving | improving | acceptable | acceptable but watch AI/audio wheels |
-| Python 3.14.x | latest | riskier | thinner | retain for active development only |
+| Python 3.14.x | latest | riskier | thinner | acceptable for active development only; packaging compatibility not independently verified |
 
 Recommendation:
+- Python 3.11+ is supported.
+- Python 3.12 is the recommended production version.
+- Python 3.14 is currently verified on the development host, but Python 3.14 packaging compatibility has not been independently verified.
 - Use Python 3.12 for release-ready Jarvis v1.0.
-- Keep 3.14 as active-development interpreter until packaging/audio regression surface shrinks.
 - Rationale: dependency wheel availability, PyInstaller compatibility, and lower packaging-block risk outweigh the marginal runtime benefits of 3.14 for this release.
 
 ## Release-Readiness Verdict
