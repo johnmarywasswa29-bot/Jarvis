@@ -15,6 +15,8 @@ class StepStatus(str, Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     CANCELLED = "cancelled"
+    REJECTED = "rejected"
+    WAITING_FOR_CONFIRMATION = "waiting_for_confirmation"
 
 
 @dataclass
@@ -32,6 +34,8 @@ class WorkflowStep:
     error: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None).isoformat())
+    requires_confirmation: bool = False
+    confirmation_token: str = ""
 
 
 @dataclass

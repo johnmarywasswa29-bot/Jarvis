@@ -52,6 +52,7 @@ class Sidebar(QFrame):
             ("memory", "Memory"),
             ("activity", "Activity"),
             ("workspace", "Workspace"),
+            ("confirm", "Confirm"),
             ("monitor", "Monitor"),
             ("settings", "Settings"),
         ]

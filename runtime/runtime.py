@@ -79,6 +79,9 @@ class RuntimeContext:
     workflow_manager: Any = None
     proactive_manager: Any = None
 
+    # orchestration
+    orchestration: Any = None
+
     # misc
     goal_manager: Any = None
     task_queue: Any = None
@@ -110,6 +113,7 @@ class RuntimeContext:
             "workspace_manager": self.workspace_manager,
             "workflow_manager": self.workflow_manager,
             "proactive_manager": self.proactive_manager,
+            "orchestration": self.orchestration,
             "goal_manager": self.goal_manager,
             "task_queue": self.task_queue,
         }
@@ -124,6 +128,68 @@ def _safe(step: str, ctx: RuntimeContext, fn) -> Any:
         logger.error(msg)
         ctx.errors.append(msg)
         return None
+
+
+class _LazyKnowledgeEngine:
+    """Thread-safe lazy proxy around KnowledgeEngine (Phase 5.2 Optimization 1).
+
+    Defers heavy engine construction until first knowledge operation while
+    preserving the full public API expected by callers.
+    """
+
+    def __init__(self, ctx: RuntimeContext) -> None:
+        self._ctx = ctx
+        self._engine: Any = None
+        self._lock = threading.Lock()
+
+    @property
+    def _real(self) -> Any:
+        return self._engine
+
+    def _ensure(self) -> Any:
+        if self._engine is not None:
+            return self._engine
+        with self._lock:
+            if self._engine is None:
+                try:
+                    from knowledge.knowledge_engine import KnowledgeEngine
+                except Exception:
+                    return None
+                self._engine = KnowledgeEngine(
+                    root_dir=self._ctx.config.knowledge_root,
+                    use_chroma=True,
+                )
+            return self._engine
+
+    def enabled(self) -> bool:
+        engine = self._ensure()
+        return bool(engine and engine.enabled())
+
+    def search(self, query: str, *, k: int = 5, filters: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+        engine = self._ensure()
+        return engine.search(query, k=k, filters=filters) if engine is not None else []
+
+    def context(self, query: str, *, max_chars: int = 2500, k: int = 5) -> str:
+        engine = self._ensure()
+        return engine.context(query, max_chars=max_chars, k=k) if engine is not None else ""
+
+    def index_file(self, path: str | Path) -> Optional[str]:
+        engine = self._ensure()
+        return engine.index_file(path) if engine is not None else None
+
+    def index_folder(self, folder: str | Path) -> list[str]:
+        engine = self._ensure()
+        return engine.index_folder(folder) if engine is not None else []
+
+    def forget(self, doc_id: str) -> None:
+        engine = self._ensure()
+        if engine is not None:
+            engine.forget(doc_id)
+
+    def close(self) -> None:
+        engine = self._ensure()
+        if engine is not None:
+            engine.close()
 
 
 def build_runtime(config: Optional[Any] = None, repo: Optional[Path] = None) -> RuntimeContext:
@@ -225,16 +291,7 @@ def build_runtime(config: Optional[Any] = None, repo: Optional[Path] = None) -> 
     )
 
     # 5. RAG
-    from knowledge.knowledge_engine import KnowledgeEngine
-
-    ctx.knowledge = _safe(
-        "knowledge",
-        ctx,
-        lambda: KnowledgeEngine(
-            root_dir=ctx.config.knowledge_root,
-            use_chroma=True,
-        ),
-    )
+    ctx.knowledge = _safe("knowledge", ctx, lambda: _LazyKnowledgeEngine(ctx))
 
     # 6. intent
     from modules.fast_intent import FastIntentRouter
@@ -280,7 +337,24 @@ def build_runtime(config: Optional[Any] = None, repo: Optional[Path] = None) -> 
         ),
     )
 
-    # 11. goals + task queue (workflow/execution backbone)
+    # 11. orchestration (depends on rag, tools, event_bus, workflows)
+    try:
+        from orchestration.manager import Orchestrator
+
+        ctx.orchestration = _safe(
+            "orchestration",
+            ctx,
+            lambda: Orchestrator(
+                rag=ctx.knowledge,
+                web_search=None,
+                tool_registry=ctx.tool_registry,
+                event_bus=ctx.event_bus,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - RC module may be unavailable in older installs
+        ctx.errors.append(f"orchestration init failed: {exc}")
+
+    # 12. goals + task queue (workflow/execution backbone)
     from goal_manager.goal_manager import GoalManager
     from goal_manager.goal_storage import GoalStorage
     from task_queue.task_queue import TaskQueue

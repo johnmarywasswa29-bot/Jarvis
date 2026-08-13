@@ -38,6 +38,7 @@ from ui.permission_dialog import PermissionDialog
 from ui.monitor_panel import MonitorPanel
 from ui.workflow_panel import WorkflowPanel
 from ui.workspace_panel import WorkspacePanel
+from ui.confirmation_panel import ConfirmationPanel
 
 from runtime.runtime import build_runtime, startup as rt_startup, stop_runtime as rt_stop
 
@@ -129,6 +130,7 @@ class AgentRuntime:
         # misc
         self.goal_manager = ctx.goal_manager
         self.task_queue = ctx.task_queue
+        self.orchestration = ctx.orchestration
         if ctx.errors:
             print(f"[runtime] build completed with {len(ctx.errors)} error(s): {ctx.errors}")
 
@@ -204,6 +206,7 @@ class JarvisWindow(QMainWindow):
             ("system", self._init_system_lazy),
             ("advisor", self._init_advisor_lazy),
             ("ollama", self._init_ollama),
+            ("confirm", self._init_confirmation),
             ("wire", self._wire_panels),
             ("runtime_start", self._runtime_start),
             ("dashboard", self._show_startup_dashboard),
@@ -242,6 +245,7 @@ class JarvisWindow(QMainWindow):
         self.activity_panel = ActivityPanel()
         self.workspace_panel = WorkspacePanel()
         self.settings_panel = SettingsPanel()
+        self.confirmation_panel = ConfirmationPanel()
 
         for widget in [
             self.chat_panel,
@@ -252,6 +256,7 @@ class JarvisWindow(QMainWindow):
             self.activity_panel,
             self.workspace_panel,
             self.settings_panel,
+            self.confirmation_panel,
         ]:
             self.pages.addWidget(widget)
 
@@ -471,6 +476,39 @@ class JarvisWindow(QMainWindow):
     def _init_advisor_lazy(self):
         self.runtime._pending_inits["advisor"] = self._init_advisor
 
+    def _init_confirmation(self):
+        try:
+            bus = getattr(self.runtime, "event_bus", None)
+            if bus is None:
+                return
+            from core.events import EventType
+
+            self._confirm_event_types = [
+                EventType.TRADE_CONFIRMATION_REQUIRED,
+                EventType.TRADE_CONFIRMED,
+                EventType.TRADE_REJECTED,
+            ]
+            for event_type in self._confirm_event_types:
+                bus.subscribe(event_type, lambda event: self._refresh_confirmations())
+            self._refresh_confirmations()
+        except Exception as exc:
+            print(f"[confirmation] init failed: {exc}")
+
+    def _refresh_confirmations(self):
+        try:
+            orch = getattr(self.runtime, "orchestration", None)
+            if orch is None:
+                return
+            pending = orch.get_pending_confirmations()
+            current = {item["confirmation_id"]: item for item in pending}
+            existing = set(self.confirmation_panel._cards.keys())
+            for cid in existing - set(current.keys()):
+                self.confirmation_panel.remove_pending(cid)
+            for item in pending:
+                self.confirmation_panel.add_pending(item)
+        except Exception as exc:
+            print(f"[confirmation] refresh failed: {exc}")
+
     def _resolve_pending(self, name: str) -> None:
         fn = self.runtime._pending_inits.pop(name, None)
         if fn is None:
@@ -586,6 +624,7 @@ class JarvisWindow(QMainWindow):
             "memory": self.memory_panel,
             "activity": self.activity_panel,
             "workspace": self.workspace_panel,
+            "confirm": self.confirmation_panel,
             "monitor": self.runtime.monitor_panel,
             "settings": self.settings_panel,
         }
@@ -607,6 +646,8 @@ class JarvisWindow(QMainWindow):
             self._refresh_knowledge()
         elif section == "memory":
             self._refresh_memory()
+        elif section == "confirm":
+            self._refresh_confirmations()
         elif section == "monitor":
             self._refresh_monitor()
 
