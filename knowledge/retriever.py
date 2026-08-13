@@ -12,7 +12,10 @@ class KnowledgeRetriever:
         self.ranking_engine = ranking_engine or None
 
     def search(self, query: str, *, k: int = 5, filters: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
-        results = self.storage.query(query, k=k, where=filters or {})
+        try:
+            results = self.storage.query(query, k=k, where=filters or {})
+        except Exception:
+            return []
         if self.ranking_engine:
             results = self.ranking_engine.rank(query, results, now=time.time())
         return results[:k]
@@ -31,6 +34,11 @@ class KnowledgeRetriever:
             if item.get("metadata", {}).get("filename"):
                 prefix = f"[{item['metadata']['filename']}] "
             if total + len(prefix) + len(text) > max_chars:
+                remaining = max_chars - total - len(prefix)
+                if remaining > 0:
+                    parts.append(prefix + text[:remaining])
+                elif not parts and prefix:
+                    parts.append(prefix)
                 break
             parts.append(prefix + text)
             total += len(prefix) + len(text)

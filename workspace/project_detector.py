@@ -63,8 +63,15 @@ class ProjectDetector:
     @staticmethod
     def _git_remote(root: Path) -> Optional[str]:
         try:
+            if not (root / ".git" / "config").exists():
+                return None
             import subprocess
-            out = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=root, text=True, stderr=subprocess.DEVNULL)
-            return out.strip()
+            out = subprocess.check_output(
+                ["git", "remote", "get-url", "origin", "--git-dir", str(root / ".git")],
+                cwd=root,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            return out.strip() or None
         except Exception:
             return None

@@ -238,9 +238,8 @@ class MemoryManager:
                 related_memories TEXT NOT NULL DEFAULT '[]',
                 decay_score REAL NOT NULL DEFAULT 1.0
             )
-            """
+        """,
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_last_accessed ON memories(last_accessed)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_importance ON memories(importance)")
