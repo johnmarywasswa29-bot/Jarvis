@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
 from typing import Optional
 
 from plugins.calendar_plugin.state import CalendarEvent
+from plugins.calendar_plugin.secrets import create_store
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,44 @@ class GoogleProvider:
         self.service = None
         self._client_secrets_path = os.environ.get("GOOGLE_CLIENT_SECRETS", "")
         self._token_path = os.environ.get("GOOGLE_TOKEN_PATH", "")
+        self._store = create_store(os.path.join(os.getcwd(), "data", "calendar"))
+
+    def _migrate_legacy_token(self, token_path: str) -> None:
+        if not token_path or not os.path.exists(token_path):
+            return
+        try:
+            text = open(token_path, "r", encoding="utf-8").read()
+            if text.strip():
+                self._store.set_secret(token_path, text)
+                os.remove(token_path)
+        except Exception as exc:
+            logger.debug("Google legacy token migration skipped: %s", exc)
+
+    def _load_token(self, token_path: str):
+        if not token_path:
+            return None
+        if os.path.exists(token_path):
+            try:
+                text = open(token_path, "r", encoding="utf-8").read()
+                if text.strip():
+                    self._migrate_legacy_token(token_path)
+                    return None
+            except Exception:
+                return None
+        value = self._store.get_secret(token_path)
+        if value is not None:
+            try:
+                import json
+
+                from google.oauth2.credentials import Credentials
+
+                return Credentials.from_authorized_user_info(
+                    json.loads(value),
+                    ["https://www.googleapis.com/auth/calendar.readonly"],
+                )
+            except Exception:
+                return None
+        return None
 
     def _ensure_authed(self) -> bool:
         if self.service is not None:
@@ -29,9 +67,7 @@ class GoogleProvider:
             from google_auth_oauthlib.flow import InstalledAppFlow
             from googleapiclient.discovery import build
 
-            creds = None
-            if self._token_path and os.path.exists(self._token_path):
-                creds = Credentials.from_authorized_user_file(self._token_path, ["https://www.googleapis.com/auth/calendar.readonly"])
+            creds = self._load_token(self._token_path)
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
@@ -41,9 +77,11 @@ class GoogleProvider:
                         ["https://www.googleapis.com/auth/calendar.readonly"],
                     )
                     creds = flow.run_local_server(port=0)
-                if self._token_path:
-                    os.makedirs(os.path.dirname(self._token_path) or ".", exist_ok=True)
-                    open(self._token_path, "w", encoding="utf-8").write(creds.to_json())
+                if self._token_path and self._store is not None:
+                    try:
+                        self._store.set_secret(self._token_path, creds.to_json())
+                    except Exception as exc:
+                        logger.debug("Google secure token store failed: %s", exc)
             self.creds = creds
             self.service = build("calendar", "v3", credentials=creds)
             return True

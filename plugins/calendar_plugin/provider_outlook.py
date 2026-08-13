@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
 from typing import Optional
 
 from plugins.calendar_plugin.state import CalendarEvent
+from plugins.calendar_plugin.secrets import create_store
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,29 @@ class OutlookProvider:
         self._token_path = os.environ.get("OUTLOOK_TOKEN_PATH", "")
         self._access_token = None
         self._expires_at = 0.0
+        self._store = create_store(os.path.join(os.getcwd(), "data", "calendar"))
+
+    def _migrate_legacy_token(self, token_path: str) -> None:
+        if not token_path or not os.path.exists(token_path):
+            return
+        try:
+            text = open(token_path, "r", encoding="utf-8").read()
+            if text.strip():
+                self._store.set_secret(token_path, text)
+                os.remove(token_path)
+        except Exception as exc:
+            logger.debug("Outlook legacy token migration skipped: %s", exc)
+
+    def _load_token(self) -> Optional[str]:
+        if self._token_path and os.path.exists(self._token_path):
+            try:
+                self._migrate_legacy_token(self._token_path)
+                return None
+            except Exception:
+                return None
+        if self._store is not None and self._token_path:
+            return self._store.get_secret(self._token_path)
+        return None
 
     def _ensure_token(self) -> bool:
         import time
@@ -44,11 +67,11 @@ class OutlookProvider:
             expires_in = int(result.get("expires_in", 3600))
             self._access_token = token
             self._expires_at = time.time() + max(expires_in, 0)
-            if self._token_path:
+            if self._token_path and self._store is not None:
                 try:
-                    open(self._token_path, "w", encoding="utf-8").write(token)
-                except Exception:
-                    pass
+                    self._store.set_secret(self._token_path, token)
+                except Exception as exc:
+                    logger.debug("Outlook secure token store failed: %s", exc)
             return True
         except Exception as exc:
             logger.debug("Outlook auth failed: %s", exc)
@@ -82,8 +105,8 @@ class OutlookProvider:
                 event = CalendarEvent(
                     event_id=item.get("id", ""),
                     title=item.get("subject", ""),
-                    start=start_info.get("dateTime", ""),
-                    end=end_info.get("dateTime", ""),
+                    start=start_info.get("dateTime", start_info.get("date", "")),
+                    end=end_info.get("dateTime", end_info.get("date", "")),
                     location=item.get("location", {}).get("displayName", "") if isinstance(item.get("location"), dict) else item.get("location", ""),
                     description=item.get("bodyPreview", ""),
                     provider="outlook",
