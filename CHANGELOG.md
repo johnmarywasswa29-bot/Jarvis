@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0-rc.1] - unreleased
+
+### Added
+- Orchestration subsystem with manager, planner, router, reflection, and state tracking
+- Proposal system with manager, validator, and state
+- Research orchestration layer
+- Simulation engine and state
+- Confirmation API and confirmation UI panel
+- Workflow event bridge for orchestration integration
+- Orchestration event types in core event bus
+- RC test coverage for orchestration, confirmation, proposal, research, and simulation
+
+### Changed
+- RuntimeContext constructs orchestration subsystem during startup
+- Knowledge engine initialization deferred to first use
+
+### Fixed
+- Workflow executor supports confirmation gating and post-confirmation continuation
+
 ## [1.0.0] - 2026-08-06
 
 ### Added

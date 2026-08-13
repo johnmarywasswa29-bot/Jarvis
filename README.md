@@ -68,3 +68,7 @@ See `docs/` for module-level notes:
 - `TASK_QUEUE.md`
 - `GOAL_MANAGER.md`
 - `PLANNER.md`
+
+## Release Candidate
+
+v1.1.0-rc.1 adds orchestration, proposal, research, simulation, and confirmation subsystems, with related tests under `tests/`.
