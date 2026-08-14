@@ -17,3 +17,5 @@ Thumbs.db
 *.wav
 *.mp3
 *.pcm
+Release/
+build/

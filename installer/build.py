@@ -26,8 +26,9 @@ def build():
     for p in [dist_dir, work_dir, spec_dir]:
         p.mkdir(parents=True, exist_ok=True)
 
-    # Ensure required bundled directories/files exist
-    for d in [REPO / "plugins", REPO / "logs"]:
+    # Ensure required bundled directories/files exist.
+    # Only clear runtime logs; preserve source plugin files.
+    for d in [REPO / "logs"]:
         _ensure_empty(d)
 
     add_data = [
@@ -58,6 +59,8 @@ def build():
         "--hidden-import", "PySide6.QtCore",
         "--hidden-import", "PySide6.QtGui",
         "--hidden-import", "PySide6.QtWidgets",
+        "--hidden-import", "ddgs",
+        "--hidden-import", "duckduckgo_search",
         "--exclude-module", "webrtcvad",
         "--exclude-module", "torch",
         "--exclude-module", "torchvision",
