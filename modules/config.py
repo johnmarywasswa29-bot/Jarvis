@@ -17,6 +17,11 @@ class JarvisConfig:
     keyword_path: str = "assets/jarvis.ppn"
     sensitivities: list[float] = field(default_factory=lambda: [0.6])
     
+    # openWakeWord
+    openwakeword_model: str = "hey_jarvis"
+    openwakeword_threshold: float = 0.5
+    openwakeword_inference: str = "onnx"  # "onnx" or "tflite" (Windows: onnx only)
+    
     # VAD
     frame_ms: int = 30
     threshold: float = 0.01

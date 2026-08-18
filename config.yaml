@@ -3,6 +3,11 @@
 keyword_path: "assets/jarvis.ppn"
 sensitivities: [0.6]
 
+# openWakeWord
+openwakeword_model: "hey_jarvis"
+openwakeword_threshold: 0.5
+openwakeword_inference: "onnx"  # "onnx" or "tflite" (Windows: onnx only)
+
 frame_ms: 30
 threshold: 0.01
 

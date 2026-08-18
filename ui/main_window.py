@@ -662,41 +662,41 @@ class JarvisWindow(QMainWindow):
         self._chat_working_widget = self.chat_panel.append_assistant("Thinking...", streaming=True)
         self._chat_prompt_t0 = time.time()
         print(f"[chat] send_message t0={self._chat_prompt_t0:.3f}")
-        self.runtime.run_in_thread(self._handle_chat_stream, text, lock=False)
+        self.runtime.run_in_thread(self._handle_chat_stream, text)
 
     def _handle_chat_stream(self, prompt: str):
-        answer = ""
-        final_widget = self._chat_working_widget
-        brain = self.runtime.brain
-        if brain is None:
-            answer = "Brain not initialized."
-            self._complete_chat(answer, widget=final_widget)
-            return
-        try:
-            if not self._ollama_ok:
-                raise RuntimeError("Ollama unavailable. Retry in background.")
+            answer = ""
+            final_widget = self._chat_working_widget
+            brain = self.runtime.brain
+            if brain is None:
+                answer = "Brain not initialized."
+                self._complete_chat(answer, widget=final_widget)
+                return
             t1 = time.time()
-            print(f"[chat] brain_run_start t1={t1:.3f} elapsed={t1 - getattr(self, '_chat_prompt_t0', t1):.3f}")
-
-            def append_chunk(token: str) -> None:
-                self._chat_stream_buffer += token
-                QTimer.singleShot(0, self._apply_stream_update, token)
-
             try:
-                answer = brain.run_stream(prompt, on_chunk=append_chunk)
-            except Exception:
-                answer = brain.run(prompt)
+                if not self._ollama_ok:
+                    raise RuntimeError("Ollama unavailable. Retry in background.")
+                print(f"[chat] brain_run_start t1={t1:.3f} elapsed={t1 - getattr(self, '_chat_prompt_t0', t1):.3f}")
 
-            t2 = time.time()
-            print(f"[chat] brain_run_end t2={t2:.3f} elapsed={t2 - t1:.3f}")
-            self._chat_stream_active = False
-        except Exception as exc:
-            answer = f"Error: {exc}"
-            print(f"[chat] brain_run_error t1={time.time():.3f} error={exc}")
-            self._chat_stream_active = False
-        t3 = time.time()
-        print(f"[chat] brain_total elapsed={t3 - t1:.3f}")
-        self._replace_working(answer or "")
+                def append_chunk(token: str) -> None:
+                    self._chat_stream_buffer += token
+                    QTimer.singleShot(0, self._apply_stream_update, token)
+
+                try:
+                    answer = brain.run_stream(prompt, on_chunk=append_chunk)
+                except Exception:
+                    answer = brain.run(prompt)
+
+                t2 = time.time()
+                print(f"[chat] brain_run_end t2={t2:.3f} elapsed={t2 - t1:.3f}")
+                self._chat_stream_active = False
+            except Exception as exc:
+                answer = f"Error: {exc}"
+                print(f"[chat] brain_run_error t1={time.time():.3f} error={exc}")
+                self._chat_stream_active = False
+            t3 = time.time()
+            print(f"[chat] brain_total elapsed={t3 - t1:.3f}")
+            self._replace_working(answer or "")
 
     def _apply_stream_update(self, token: str):
         if not getattr(self, "_chat_stream_active", False):

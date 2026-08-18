@@ -306,28 +306,48 @@ def build_runtime(config: Optional[Any] = None, repo: Optional[Path] = None) -> 
         lambda: IntentAnalyzer(router=ctx.intent_router, memory=ctx.memory_manager),
     )
 
-    # 7. habits
-    from habits.habit_manager import HabitManager
+    def _try_import(module_path: str, class_name: str, **kwargs):
+        """Safely import an optional module and instantiate its main class.
+        Returns None if module doesn't exist (intentionally removed)."""
+        try:
+            module = __import__(module_path, fromlist=[class_name])
+            cls = getattr(module, class_name)
+            return cls(**kwargs) if kwargs else cls()
+        except ImportError:
+            # Module intentionally removed from architecture
+            return None
+        except Exception as exc:
+            # Other errors (like missing dependencies) should be logged but not crash
+            logger.warning(f"Optional module {module_path} failed to initialize: {exc}")
+            return None
 
-    ctx.habit_manager = _safe("habit_manager", ctx, lambda: HabitManager())
+
+    # 7. habits (optional - module was intentionally removed)
+    ctx.habit_manager = _safe(
+        "habit_manager",
+        ctx,
+        lambda: _try_import("habits.habit_manager", "HabitManager"),
+    )
 
     # 8. workspace
-    from workspace.workspace_manager import WorkspaceManager
+    ctx.workspace_manager = _safe(
+        "workspace_manager",
+        ctx,
+        lambda: __import__("workspace.workspace_manager", fromlist=["WorkspaceManager"]).WorkspaceManager(),
+    )
 
-    ctx.workspace_manager = _safe("workspace_manager", ctx, lambda: WorkspaceManager())
+    # 9. workflows (optional - module was intentionally removed)
+    ctx.workflow_manager = _safe(
+        "workflow_manager",
+        ctx,
+        lambda: _try_import("workflows.manager", "WorkflowManager"),
+    )
 
-    # 9. workflows
-    from workflows.manager import WorkflowManager
-
-    ctx.workflow_manager = _safe("workflow_manager", ctx, lambda: WorkflowManager())
-
-    # 10. proactive (depends on memory, habits, rag, workflow, workspace, intent)
-    from proactive.proactive_manager import ProactiveManager
-
+    # 10. proactive (optional - module was intentionally removed)
     ctx.proactive_manager = _safe(
         "proactive_manager",
         ctx,
-        lambda: ProactiveManager(
+        lambda: _try_import("proactive.proactive_manager", "ProactiveManager",
             memory=ctx.memory_manager,
             habits=ctx.habit_manager,
             rag=ctx.knowledge,
@@ -337,22 +357,17 @@ def build_runtime(config: Optional[Any] = None, repo: Optional[Path] = None) -> 
         ),
     )
 
-    # 11. orchestration (depends on rag, tools, event_bus, workflows)
-    try:
-        from orchestration.manager import Orchestrator
-
-        ctx.orchestration = _safe(
-            "orchestration",
-            ctx,
-            lambda: Orchestrator(
-                rag=ctx.knowledge,
-                web_search=None,
-                tool_registry=ctx.tool_registry,
-                event_bus=ctx.event_bus,
-            ),
-        )
-    except Exception as exc:  # noqa: BLE001 - RC module may be unavailable in older installs
-        ctx.errors.append(f"orchestration init failed: {exc}")
+    # 11. orchestration (optional - depends on deleted workflows module)
+    ctx.orchestration = _safe(
+        "orchestration",
+        ctx,
+        lambda: _try_import("orchestration.manager", "Orchestrator",
+            rag=ctx.knowledge,
+            web_search=None,
+            tool_registry=ctx.tool_registry,
+            event_bus=ctx.event_bus,
+        ),
+    )
 
     # 12. goals + task queue (workflow/execution backbone)
     from goal_manager.goal_manager import GoalManager

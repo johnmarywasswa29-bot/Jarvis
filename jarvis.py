@@ -28,7 +28,7 @@ from modules.logger import setup_logger
 from modules.permission_manager import PermissionManager
 from core import events as core_events
 from runtime.runtime import build_runtime, stop_runtime as rt_stop
-
+from modules.tools import ToolRegistry
 
 logger = logging.getLogger("jarvis")
 
@@ -47,7 +47,8 @@ class JarvisAssistant:
         self.permissions = ctx.permission_manager or PermissionManager()
         self.tools = ctx.tool_registry or ToolRegistry(self.config)
         self.voice = VoiceModule(self.config)
-        self.brain = JarvisBrain(self.config, self.tools, self.memory)
+        # Use runtime's chat_memory (JarvisMemoryV2) for brain, not fallback
+        self.brain = JarvisBrain(self.config, self.tools, ctx.chat_memory or self.memory)
         self.vision = VisionModule(self.config)
 
         # Expose the full runtime for any subsystem that wants it.
@@ -82,7 +83,7 @@ class JarvisAssistant:
                 
                 logger.info("Heard: %s", transcript)
                 
-                if transcript.lower().startswith("jarvis"):
+                if "jarvis" in transcript.lower():
                     self.voice.beep(high=True)
                 else:
                     self.voice.beep(high=False)
@@ -102,6 +103,7 @@ class JarvisAssistant:
                 self.memory.add_message("assistant", response)
                 
                 logger.info("Jarvis: %s", response)
+                print(f"Jarvis: {response}")  # Console output for keyboard fallback mode
                 self.voice.speak(response)
         finally:
             listener_task.cancel()

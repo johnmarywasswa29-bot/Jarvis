@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Dict, List
 
-from plugins.sdk.state import PluginEvent
+from plugins.sdk.state import PluginEvent, PluginEventType
 
 
 EventHandler = Callable[[PluginEvent], None]

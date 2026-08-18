@@ -27,6 +27,7 @@ except Exception:
 
 from modules.config import JarvisConfig
 from modules.logger import get_logger
+from modules.wake_word import create_wake_word_engine, WakeWordEngine
 
 logger = get_logger("voice")
 
@@ -82,7 +83,7 @@ class VoiceModule:
     def __init__(self, config: JarvisConfig) -> None:
         self.config = config
         self._beep = _Beep()
-        self._porc = None
+        self._wake_engine: Optional[WakeWordEngine] = None
         self._recorder = None
         self._vad = None
         self._microphone_enabled = _HAS_PYAUDIO and _HAS_WEBRTCVAD
@@ -101,8 +102,8 @@ class VoiceModule:
         self._stop_event = threading.Event()
         
         self._setup_tts()
-        self._ensure_porcupine()
-    
+        self._init_wake_engine()
+
     # ---------- TTS ----------
     def _setup_tts(self) -> None:
         if not _HAS_TTS:
@@ -114,7 +115,7 @@ class VoiceModule:
             logger.info("TTS initialized via pyttsx3")
         except Exception as exc:
             logger.error("TTS init failed: %s", exc)
-    
+
     def _speak_sync(self, text: str) -> None:
         if self._tts_engine is None:
             logger.info("[TTS MISSING] %s", text)
@@ -124,40 +125,39 @@ class VoiceModule:
             self._tts_engine.runAndWait()
         except Exception as exc:
             logger.error("TTS error: %s", exc)
-    
+
     def speak(self, text: str) -> None:
         if threading.current_thread() is threading.main_thread():
             self._speak_sync(text)
         else:
             loop = asyncio.get_event_loop()
             loop.call_soon_threadsafe(self._speak_sync, text)
-    
+
     def beep(self, high: bool = False) -> None:
         try:
             self._beep.play(high=high)
         except Exception as exc:
             logger.debug("Beep skipped: %s", exc)
-    
-    # ---------- Porcupine / fallback ----------
+
+    # ---------- Wake Word Engine ----------
+    def _init_wake_engine(self) -> None:
+        """Initialize the wake word engine (openWakeWord or Porcupine fallback)."""
+        self._wake_engine = create_wake_word_engine(self.config)
+        if not self._wake_engine.initialize():
+            logger.warning("Wake word engine initialization failed, disabling wake word detection")
+            self._wake_engine = None
+        else:
+            logger.info("Wake word engine initialized: %s", type(self._wake_engine).__name__)
+
+    # ---------- Porcupine / fallback (legacy) ----------
     def _ensure_porcupine(self) -> None:
-        if not _HAS_PORCUPINE:
-            logger.warning("Running WITHOUT pvporcupine wake word.")
+        """Legacy method for backward compatibility. Delegates to wake engine."""
+        if self._wake_engine is not None and isinstance(self._wake_engine, PorcupineWakeWordEngine):
+            # Already initialized via _init_wake_engine
             return
-        kw_path = Path(self.config.keyword_path)
-        if not kw_path.exists():
-            logger.warning("Wake-word file missing: %s", kw_path)
-            return
-        try:
-            access_key = os.getenv("PICOVOICE_ACCESS_KEY", "")
-            self._porc = pvporcupine.create(
-                access_key=access_key,
-                keyword_paths=[str(kw_path)],
-                sensitivities=self.config.sensitivities,
-            )
-            logger.info("Porcupine wake word loaded")
-        except Exception as exc:
-            logger.error("Porcupine init failed, disabling wake word: %s", exc)
-            self._porc = None
+        # Fallback to old behavior if explicitly called
+        logger.warning("Legacy _ensure_porcupine called; using wake engine abstraction instead")
+        self._init_wake_engine()
 
     # ---------- STT ----------
     def _load_vosk_model(self):
@@ -201,7 +201,7 @@ class VoiceModule:
             if extracted and extracted.is_dir():
                 extracted.rename(model_path)
         return Model(str(model_path))
-    
+
     def _record_until_silence(
         self, sample_rate: int = 16000, max_seconds: float = 8.0
     ) -> Optional[bytes]:
@@ -256,7 +256,7 @@ class VoiceModule:
             stream.close()
         
         return b"".join(voiced) if voiced else None
-    
+
     def _transcribe(self, pcm: bytes) -> str:
         # Prefer Whisper when available; it's model-backed and offline-capable.
         if _HAS_WHISPER:
@@ -311,7 +311,7 @@ class VoiceModule:
             return json.loads(final).get("text", "").strip()
         except Exception:
             return ""
-    
+
     # ---------- Listening Loop ----------
     async def listen_loop(self, out_queue: "asyncio.Queue[Optional[str]]") -> None:
         """Continuously listen, detect wake word, capture one command, put transcript."""
@@ -333,10 +333,31 @@ class VoiceModule:
                 logger.info("Listen loop cancelled")
                 return
 
+        # Determine frame size for wake word engine
+        if self._wake_engine is not None:
+            frame_len = self._wake_engine.frame_length
+            engine_sr = self._wake_engine.sample_rate
+        else:
+            frame_len = 1280
+            engine_sr = 16000
+
+        def read_wake_block() -> tuple[int, bytes, bool]:
+            """Return (frame_length, pcm, kw_detected)"""
+            pcm = sd.rec(int(frame_len / engine_sr * engine_sr), samplerate=engine_sr, channels=1, dtype="int16", blocking=True)
+            pcm_bytes = np.ascontiguousarray(pcm).tobytes()
+            if self._wake_engine is not None:
+                kw = self._wake_engine.process_frame(pcm_bytes)
+            else:
+                kw = False
+            return frame_len, pcm_bytes, kw
+
+        # Warm-up
+        sd.play(np.zeros(480, dtype=np.int16), engine_sr, blocking=True)
+
         while True:
             try:
-                # 1) If no porcupine -> ask for manual start every 5s or passive listen
-                if self._porc is None:
+                # 1) If no wake engine -> passive listen
+                if self._wake_engine is None:
                     await asyncio.sleep(2.0)
                     pcm = self._record_until_silence(sample_rate, max_seconds=5.0)
                     if pcm:
@@ -345,23 +366,10 @@ class VoiceModule:
                             await out_queue.put(text)
                     continue
 
-                # 2) Porcupine path (always uses 16kHz internally)
-                porc_sr = self._porc.sample_rate
-
-                def read_porc_block() -> tuple[int, bytes, bool]:
-                    """Return (frame_length, pcm, kw_detected)"""
-                    frame_len = self._porc.frame_length
-                    pcm = sd.rec(int(frame_len / porc_sr * porc_sr), samplerate=porc_sr, channels=1, dtype="int16", blocking=True)
-                    pcm_bytes = np.ascontiguousarray(pcm).tobytes()
-                    kw_idx = self._porc.process(pcm_bytes)
-                    return frame_len, pcm_bytes, kw_idx >= 0
-
-                # Warm-up
-                sd.play(np.zeros(480, dtype=np.int16), porc_sr, blocking=True)
-
+                # 2) Wake word engine path
                 detected = False
                 while not detected:
-                    frame_len, pcm_bytes, kw = await asyncio.to_thread(read_porc_block)
+                    frame_len, pcm_bytes, kw = await asyncio.to_thread(read_wake_block)
                     if kw:
                         detected = True
 
@@ -380,11 +388,11 @@ class VoiceModule:
             except Exception as exc:
                 logger.error("Listen loop error: %s", exc, exc_info=True)
                 await asyncio.sleep(1.0)
-    
+
     def shutdown(self) -> None:
-        if self._porc is not None:
-            self._porc.delete()
-            self._porc = None
+        if self._wake_engine is not None:
+            self._wake_engine.shutdown()
+            self._wake_engine = None
         if self._tts_engine is not None:
             try:
                 self._tts_engine.stop()

@@ -1,12 +1,13 @@
-# Auto-generated minimum versions from scripts/scan_dependencies.py# Re-generate with: py scripts/scan_dependencies.py --write-requirementsbeautifulsoup4>=4.12
+# Auto-generated minimum versions from scripts/scan_dependencies.py
+# Re-generate with: py scripts/scan_dependencies.py --write-requirements
+beautifulsoup4>=4.12
 duckduckgo-search>=6.0
 python-dotenv>=1.0
 duckduckgo-search>=6.0
 numpy>=1.24
 ollama>=0.4.7
 psutil>=5.9
-pvporcupine>=3.0.5
-pvrecorder>=1.2.7
+openwakeword>=0.6.0
 pyautogui>=0.9.54
 pygetwindow>=0.0.9
 pyttsx3>=2.90
@@ -32,4 +33,3 @@ PyYAML>=6.0
 # torch
 # uvicorn
 # weaviate
-

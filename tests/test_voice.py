@@ -18,6 +18,10 @@ class DummyConfig:
     keyword_path = Path("nonexistent.ppn")
     sensitivities = [0.6]
     logs_dir = REPO / "logs"
+    project_root = REPO
+    openwakeword_model = "hey_jarvis"
+    openwakeword_threshold = 0.5
+    openwakeword_inference = "onnx"
 
     def stt_models_dir(self):
         return REPO / "data"

@@ -4,7 +4,19 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
+from enum import Enum
 from typing import Any, Dict, List, Optional
+
+
+class PluginEventType(str, Enum):
+    """Standard plugin lifecycle event types."""
+    PLUGIN_INSTALLED = "plugin_installed"
+    PLUGIN_UNINSTALLED = "plugin_uninstalled"
+    PLUGIN_LOADED = "plugin_loaded"
+    PLUGIN_UNLOADED = "plugin_unloaded"
+    PLUGIN_ENABLED = "plugin_enabled"
+    PLUGIN_DISABLED = "plugin_disabled"
+    PLUGIN_ERROR = "plugin_error"
 
 
 @dataclass

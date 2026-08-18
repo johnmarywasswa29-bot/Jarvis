@@ -426,13 +426,20 @@ class JarvisBrain:
         return any(k in low for k in COMPLEX_KEYWORDS)
 
     def run(self, prompt: str, extra_context: Optional[list[str]] = None) -> str:
+        # Strip wake word before routing
+        clean_prompt = prompt
+        for wake in ["hey jarvis", "jarvis", "ok jarvis"]:
+            if clean_prompt.lower().startswith(wake):
+                clean_prompt = clean_prompt[len(wake):].strip()
+                break
+        
         mem = self.memory_v2 or self.memory_v1
         try:
             mem.add_message("user", prompt)
         except Exception:
             pass
 
-        intent = self.router.route(prompt)
+        intent = self.router.route(clean_prompt)
         if intent:
             tool_name = intent.get("tool", "")
             tool = next((t for t in self.tools.tools if t.name == tool_name and t.enabled), None)
@@ -451,11 +458,11 @@ class JarvisBrain:
                 return answer
             return f"Tool '{tool_name}' is not available."
 
-        if self._graph is not None and self._is_complex(prompt):
+        if self._graph is not None and self._is_complex(clean_prompt):
             try:
                 out = self._graph.invoke(
                     {
-                        "transcript": prompt,
+                        "transcript": clean_prompt,
                         "context": list(extra_context or []),
                         "plan": "",
                         "selected_tools": [],
@@ -474,7 +481,7 @@ class JarvisBrain:
             except Exception as exc:
                 self.logger.error("Graph run failed: %s", exc)
 
-        return self._simple_chat(prompt, extra_context=extra_context)
+        return self._simple_chat(clean_prompt, extra_context=extra_context)
 
     def _simple_chat(self, prompt: str, *, extra_context: Optional[list[str]] = None, on_chunk: Any = None) -> str:
         mem = self.memory_v2 or self.memory_v1

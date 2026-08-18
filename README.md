@@ -8,8 +8,8 @@ and organizes files -- all locally when possible.
 
 Microphone -> Speech-to-Text -> LLM Brain -> Tools / TTS -> Speaker
 
-Wake Word: `pvporcupine` (offline, configurable keyword)
-STT      : `vosk` + webrtcvad VAD
+Wake Word: `openWakeWord` (offline, pre-trained "hey jarvis" model)
+STT      : `vosk` + webrtcvad VAD (with optional Whisper fallback)
 LLM      : `ollama` + `llama3` (fully local)
 TTS      : `pyttsx3`
 Memory   : JSON-backed session memory with keyword search
@@ -29,17 +29,22 @@ Vision   : Screenshot capture; limited description unless extended
 4. Start Jarvis:
      run.bat
 
-5. Place your custom wake-word `.ppn` at:
-     assets/jarvis.ppn
+5. Say "hey jarvis" and a command, e.g.:
+     hey jarvis, search for the latest AI papers today.
+     hey jarvis, what is on my screen?
+     hey jarvis, open Notepad.
+     hey jarvis, calculate the first 100 fibonacci numbers.
 
-   Get keywords at https://picovoice.ai/platform/porcupine/
-   Optional PICOVOICE_ACCESS_KEY env var (not required for local checks).
+## Wake Word Configuration
 
-6. Say "Jarvis" and a command, e.g.:
-     Jarvis, search for the latest AI papers today.
-     Jarvis, what is on my screen?
-     Jarvis, open Notepad.
-     Jarvis, calculate the first 100 fibonacci numbers.
+Jarvis uses openWakeWord for wake word detection. The "hey jarvis" model is downloaded automatically on first run.
+
+Configuration options in `config.yaml`:
+- `openwakeword_model`: Model name (default: "hey_jarvis")
+- `openwakeword_threshold`: Detection threshold 0.0-1.0 (default: 0.5)
+- `openwakeword_inference`: Inference framework "onnx" or "tflite" (Windows: onnx only)
+
+No API keys or external services required - fully offline.
 
 ## Features
 

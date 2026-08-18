@@ -23,7 +23,8 @@ class PluginManager:
         events: Optional[PluginEvents] = None,
         api: Optional[PluginAPI] = None,
     ) -> None:
-        self.plugins_dir = Path(plugins_dir) if plugins_dir else Path(__file__).resolve().parents[1] / "plugins"
+        # Default to project's plugins/ directory (go up 2 levels from plugins/sdk/manager.py)
+        self.plugins_dir = Path(plugins_dir) if plugins_dir else Path(__file__).resolve().parents[2] / "plugins"
         self.registry = registry or PluginRegistry()
         self.events = events or PluginEvents()
         self.api = api or PluginAPI()
