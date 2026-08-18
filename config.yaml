@@ -20,6 +20,16 @@ llm_base_url: "http://localhost:11434"
 llm_fallback_model: "llama2"
 llm_timeout_s: 12.0
 
+# NVIDIA Nemotron
+nvidia_api_key: ""
+nvidia_base_url: "https://integrate.api.nvidia.com/v1"
+nvidia_model: "nvidia/nemotron-3-ultra-550b-a55b"
+nvidia_temperature: 1.0
+nvidia_top_p: 0.95
+nvidia_max_tokens: 16384
+nvidia_reasoning_budget: 16384
+nvidia_enable_thinking: true
+
 tts_engine: "pyttsx3"
 tts_rate: 170
 tts_volume: 0.9

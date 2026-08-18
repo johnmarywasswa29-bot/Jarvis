@@ -12,25 +12,25 @@ import yaml
 class JarvisConfig:
     """Central configuration object for Jarvis."""
     project_root: Path = Path(__file__).resolve().parent.parent
-    
+
     # Wake word
     keyword_path: str = "assets/jarvis.ppn"
     sensitivities: list[float] = field(default_factory=lambda: [0.6])
-    
+
     # openWakeWord
     openwakeword_model: str = "hey_jarvis"
     openwakeword_threshold: float = 0.5
     openwakeword_inference: str = "onnx"  # "onnx" or "tflite" (Windows: onnx only)
-    
+
     # VAD
     frame_ms: int = 30
     threshold: float = 0.01
-    
+
     # Speech-to-text
     stt_model_name: str = "small"
     stt_backend: str = "vosk"
     _stt_models_dir: Path | None = None
-    
+
     # LLM
     llm_provider: str = "ollama"
     llm_model: str = "llama3"
@@ -42,26 +42,36 @@ class JarvisConfig:
     ollama_critical_latency_s: float = 20.0
     ollama_auto_reconnect: bool = True
     ollama_degraded_mode: bool = True
-    
+
+    # NVIDIA Nemotron
+    nvidia_api_key: str = ""
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_model: str = "nvidia/nemotron-3-ultra-550b-a55b"
+    nvidia_temperature: float = 1.0
+    nvidia_top_p: float = 0.95
+    nvidia_max_tokens: int = 16384
+    nvidia_reasoning_budget: int = 16384
+    nvidia_enable_thinking: bool = True
+
     # TTS
     tts_engine: str = "pyttsx3"
     tts_rate: int = 170
     tts_volume: float = 0.9
-    
+
     # Vision
     vision_mode: str = "gpt-4v"
-    
+
     # Memory
     memory_persist_directory: str = "memory"
     memory_collection: str = "jarvis_memory"
-    
+
     # Tools
     web_search_enabled: bool = True
     desktop_control_enabled: bool = True
     code_execution_enabled: bool = True
     filesystem_enabled: bool = True
     vision_enabled: bool = True
-    
+
     # Paths
     downloads: str = str(Path.home() / "Downloads")
     desktop: str = str(Path.home() / "Desktop")
@@ -93,18 +103,18 @@ class JarvisConfig:
         with open(path, "r", encoding="utf-8") as f:
             data: dict[str, Any] = yaml.safe_load(f)
         return cls(**data)
-    
+
     def stt_models_dir(self) -> Path:
         if self._stt_models_dir is None:
             self._stt_models_dir = self.project_root / "assets" / "stt_models"
         return self._stt_models_dir
-    
+
     def wake_word_path(self) -> Path:
         p = Path(self.keyword_path)
         if not p.is_absolute():
             p = self.project_root / p
         return p
-    
+
     def memory_path(self) -> Path:
         p = Path(self.memory_persist_directory)
         if not p.is_absolute():
