@@ -19,3 +19,12 @@ Thumbs.db
 *.pcm
 Release/
 build/
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
+data/rc_*/
+tests/tmp_*/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+chroma/
