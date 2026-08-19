@@ -60,8 +60,15 @@ class FakeSynthesizer(ResearchSynthesizer):
         raise_on_identify: bool = False,
         raise_on_synthesize: bool = False,
         rate_limited: bool = True,
+        gap_sequence: list[list[str]] | None = None,
     ) -> None:
         self.gaps = gaps if gaps is not None else []
+        # If a gap_sequence is supplied, identify_gaps replays it (one entry per
+        # call) and converges to the final entry; otherwise the fixed ``gaps``
+        # list is returned on every call. This lets tests model multi-round
+        # convergence under the Phase 9C iterative loop.
+        self.gap_sequence = gap_sequence
+        self._gap_index = 0
         self.synthesis = synthesis
         self.confidence = confidence
         self.extra_gaps = extra_gaps if extra_gaps is not None else []
@@ -78,6 +85,10 @@ class FakeSynthesizer(ResearchSynthesizer):
                 "provider unavailable during gap analysis",
                 rate_limited=self.rate_limited,
             )
+        if self.gap_sequence is not None:
+            i = min(self._gap_index, len(self.gap_sequence) - 1)
+            self._gap_index += 1
+            return list(self.gap_sequence[i])
         return list(self.gaps)
 
     def synthesize(self, question, sources, citations) -> ResearchSynthesisResult:
@@ -141,11 +152,12 @@ def _make_pipeline(synthesizer, limits=None):
 @pytest.mark.offline
 class TestMultiStepResearch:
     def test_full_flow_completes_with_fake(self):
-        fake = FakeSynthesizer(gaps=["Need more detail on cost"])
+        # Convergence sequence: one gap this round, then empty (no more rounds).
+        fake = FakeSynthesizer(gap_sequence=[["Need more detail on cost"], []])
         with patch(_SEARCH_PATCH, return_value=_search_results(2)), \
              patch("research.pipeline.fetch_url", side_effect=lambda u: _ok_fetch(u)), \
              patch("research.pipeline.extract_content", side_effect=lambda c, url="": _ok_extract()):
-            pipeline = _make_pipeline(fake, ResearchLimits(max_steps=6, max_searches=3, max_fetches=4))
+            pipeline = _make_pipeline(fake, ResearchLimits(max_steps=20, max_searches=5, max_fetches=8))
             result = pipeline.research("Best local LLMs in 2026?")
 
         assert result.query == "Best local LLMs in 2026?"
@@ -183,16 +195,26 @@ class TestMultiStepResearch:
 @pytest.mark.offline
 class TestGapDetectionDrivesAdditionalSearch:
     def test_gaps_trigger_additional_search(self):
-        # Two gaps -> additional_search step should run and add sources.
-        fake = FakeSynthesizer(gaps=["Missing cost info", "Missing license info"])
-        with patch("research.fetcher.search_web", side_effect=lambda q, **k: _search_results(2, prefix="more")), \
+        # Convergence sequence: gaps this round, then empty (stops after one round).
+        fake = FakeSynthesizer(gap_sequence=[["Missing cost info", "Missing license info"], []])
+        seen = {"n": 0}
+
+        def _search(q, **k):
+            i = seen["n"]
+            seen["n"] += 1
+            # Initial search -> one prefix; additional search -> a DIFFERENT
+            # prefix so genuinely new sources are discovered.
+            pfx = "more" if i == 0 else "extra"
+            return [{"title": f"P{j}", "href": f"https://{pfx}.com/{j}", "body": "b"} for j in range(1, 3)]
+
+        with patch(_SEARCH_PATCH, side_effect=_search), \
              patch("research.pipeline.fetch_url", side_effect=lambda u: _ok_fetch(u)), \
              patch("research.pipeline.extract_content", side_effect=lambda c, url="": _ok_extract()):
-            pipeline = _make_pipeline(fake, ResearchLimits(max_steps=8, max_searches=3, max_fetches=6, overall_timeout_s=30.0))
+            pipeline = _make_pipeline(fake, ResearchLimits(max_steps=20, max_searches=5, max_fetches=6, overall_timeout_s=30.0))
             result = pipeline.research("Compare local LLMs")
 
         assert any(s.action == "additional_search" for s in result.research_steps)
-        # Initial 2 + additional 2 (gap1, gap2) = 4 source records expected.
+        # Initial 2 (more.com) + additional 2 (extra.com) = 4 source records.
         assert len(result.sources) >= 4
         # The additional search queries embed the gap text.
         add_step = next(s for s in result.research_steps if s.action == "additional_search")
@@ -215,15 +237,35 @@ class TestGapDetectionDrivesAdditionalSearch:
 @pytest.mark.offline
 class TestIterativeSearchDedup:
     def test_duplicate_urls_not_added(self):
-        # Make the initial and additional searches return the SAME urls.
-        fake = FakeSynthesizer(gaps=["gap one"])
-        with patch(_SEARCH_PATCH, return_value=_search_results(2, prefix="dup")), \
+        # Two rounds; each search returns a mix of NEW and DUPLICATE urls.
+        # The pipeline must dedupe across every round (no repeated sources).
+        fake = FakeSynthesizer(gap_sequence=[["gap one"], []])
+        seen = {"n": 0}
+
+        def _search(q, **k):
+            i = seen["n"]
+            seen["n"] += 1
+            if i == 0:
+                # Initial search: unique urls.
+                return [{"title": f"P{j}", "href": f"https://dup.com/{j}", "body": "b"} for j in range(1, 3)]
+            # Additional search: returns dup.com/2 (already known) and a NEW
+            # dup.com/3 as the first two results (the pipeline only inspects the
+            # first two per gap), then a repeat of /1. /3 must be added, /1 & /2 deduped.
+            return [
+                {"title": "P2", "href": "https://dup.com/2", "body": "b"},
+                {"title": "P3", "href": "https://dup.com/3", "body": "b"},
+                {"title": "P1", "href": "https://dup.com/1", "body": "b"},
+            ]
+
+        with patch(_SEARCH_PATCH, side_effect=_search), \
              patch("research.pipeline.fetch_url", side_effect=lambda u: _ok_fetch(u)), \
              patch("research.pipeline.extract_content", side_effect=lambda c, url="": _ok_extract()):
-            pipeline = _make_pipeline(fake, ResearchLimits(max_steps=8, max_searches=3, max_fetches=10, overall_timeout_s=30.0))
+            pipeline = _make_pipeline(fake, ResearchLimits(max_steps=20, max_searches=5, max_fetches=10, overall_timeout_s=30.0))
             result = pipeline.research("Dup test")
         urls = [s.url for s in result.sources]
         assert len(urls) == len(set(urls)), "duplicate URLs were added across iterations"
+        # Exactly 3 unique sources (dup.com/1, /2, /3).
+        assert len(result.sources) == 3
 
 
 # -----------------------------------------------------------------------------
@@ -251,21 +293,23 @@ class TestMaxStepEnforcement:
         assert elapsed < 15.0
 
     def test_many_gaps_does_not_loop_unbounded(self):
-        # Many gaps must NOT trigger one additional-search per gap (no
-        # per-gap loop). Exactly one gap-iteration round executes.
-        fake = FakeSynthesizer(gaps=["g1", "g2", "g3", "g4", "g5"])
-        with patch(_SEARCH_PATCH, return_value=_search_results(1, prefix="lim")), \
+        # Many initial gaps must NOT loop once per gap; the iterative loop runs
+        # rounds until the synthesizer converges (returns no gaps), then stops.
+        # Here the sequence converges after the first additional round.
+        fake = FakeSynthesizer(gap_sequence=[["g1", "g2", "g3", "g4", "g5"], []])
+        with patch(_SEARCH_PATCH, side_effect=lambda q, **k: _search_results(1, prefix="lim")), \
              patch("research.pipeline.fetch_url", side_effect=lambda u: _ok_fetch(u)), \
              patch("research.pipeline.extract_content", side_effect=lambda c, url="": _ok_extract()):
             result = _make_pipeline(
                 fake,
-                ResearchLimits(max_steps=5, max_searches=2, max_fetches=3, overall_timeout_s=30.0),
+                ResearchLimits(max_steps=20, max_searches=5, max_fetches=10, overall_timeout_s=30.0),
             ).research("Limited iterations")
-        # Initial search + fetch + extract + identify_gaps = 4, then exactly
-        # one additional_search round, then fetch + extract + synthesize.
-        # Step count stays bounded (<= 8), never explodes with gap count.
-        assert len(result.research_steps) <= 8
+        # At least one gap-iteration round executed (gap -> search -> re-assess).
         assert any(s.action == "additional_search" for s in result.research_steps)
+        # Step count is bounded and never explodes regardless of gap count.
+        assert len(result.research_steps) <= 15
+        # Converged: no remaining gaps.
+        assert result.gaps == []
 
     def test_max_steps_gate_prevents_gap_iteration(self):
         # When max_steps is too small to fit a gap-iteration round, the

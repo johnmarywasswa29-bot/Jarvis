@@ -419,14 +419,21 @@ class ResearchPipeline:
         self._active_jobs = max(0, self._active_jobs - 1)
 
     def research(self, query: str, *, limits: Optional[ResearchLimits] = None) -> ResearchFindings:
-        """Execute multi-step research on a query.
+        """Execute multi-step, multi-round research on a query.
 
-        Args:
-            query: Research question
-            limits: Optional override of default limits
+        Phase 9C: true iterative research. The pipeline runs repeated rounds of
+        SEARCH -> FETCH -> EXTRACT -> IDENTIFY GAPS, then performs additional
+        searches for the gaps found and re-enters the loop, re-running gap
+        detection after each new round. It stops deterministically when:
+          * the synthesizer reports no meaningful gaps (convergence),
+          * ``max_steps`` is reached,
+          * ``max_searches`` / ``max_fetches`` is reached,
+          * the overall timeout is reached, or
+          * no useful new sources are discovered (no progress).
 
-        Returns:
-            ResearchFindings with structured results
+        URLs and search queries are deduplicated across every round to prevent
+        repeated identical work and infinite loops. Research progress is
+        preserved if any fetch or synthesis operation fails.
         """
         if not query or not query.strip():
             return ResearchFindings(query=query, completed_at=datetime.now(UTC).replace(tzinfo=None).isoformat())
@@ -447,33 +454,52 @@ class ResearchPipeline:
         findings = ResearchFindings(query=query, research_id=str(uuid.uuid4())[:8])
 
         try:
-            # Step 1: Initial search
+            # --- Initial round: search -> fetch -> extract -> identify gaps ---
             findings = self._step_search(query, findings, active_limits)
-
-            # Step 2: Fetch top results
             findings = self._step_fetch(findings, active_limits)
-
-            # Step 3: Extract content
             findings = self._step_extract(findings, active_limits)
-
-            # Step 4: Identify gaps
             findings = self._step_identify_gaps(findings, active_limits)
 
-            # Step 5: Additional searches if gaps exist
-            if findings.gaps and len(findings.research_steps) < active_limits.max_steps:
-                findings = self._step_additional_search(findings, active_limits)
-                # Re-fetch and re-extract for new sources
+            # --- Iterative rounds: gap -> additional search -> fetch -> extract -> reassess ---
+            round_no = 1
+            previous_source_count = len(findings.sources)
+            searched_queries: set[str] = {query.strip().lower()}
+
+            while findings.gaps and self._can_continue_research(findings, active_limits, t0, round_no):
+                # Remember how many sources existed before this round so we can
+                # detect "no useful new sources discovered".
+                before_sources = len(findings.sources)
+
+                # Additional searches for the current gaps (deduped, bounded).
+                findings = self._step_additional_search(findings, active_limits, searched_queries)
+                if not self._can_continue_research(findings, active_limits, t0, round_no):
+                    break
+
+                # Re-fetch and re-extract the newly discovered pending sources.
                 findings = self._step_fetch(findings, active_limits)
                 findings = self._step_extract(findings, active_limits)
 
-            # Step 6: Synthesize
+                # Re-assess gaps with the now-larger evidence base.
+                findings = self._step_identify_gaps(findings, active_limits)
+
+                round_no += 1
+                new_sources = len(findings.sources) - before_sources
+                if new_sources <= 0:
+                    # No useful new sources were discovered this round; stop to
+                    # avoid an infinite loop over the same (failing) queries.
+                    break
+
+            # --- Final synthesis ---
             findings = self._step_synthesize(findings, active_limits)
 
         except Exception as e:
             logger.exception("Research pipeline error for query: %s", query)
-            findings.synthesis = f"Research failed: {e}"
+            # Preserve whatever progress we have; do not lose sources.
+            if not findings.synthesis:
+                findings.synthesis = f"Research failed: {e}"
             findings.confidence = 0.0
-            findings.gaps.append(f"Pipeline error: {e}")
+            if "Pipeline error" not in findings.gaps:
+                findings.gaps.append(f"Pipeline error: {e}")
 
         finally:
             findings.duration_s = time.perf_counter() - t0
@@ -481,6 +507,45 @@ class ResearchPipeline:
             self._release_concurrency()
 
         return findings
+
+    def _can_continue_research(
+        self,
+        findings: ResearchFindings,
+        limits: ResearchLimits,
+        t0: float,
+        round_no: int,
+    ) -> bool:
+        """Deterministic guard for the iterative research loop.
+
+        Returns False (stop) when ANY of the hard stop conditions is met:
+          * max_steps reached,
+          * max_searches reached,
+          * max_fetches reached,
+          * overall timeout reached.
+        """
+        # Bounded by total recorded steps. A single iteration appends up to four
+        # steps (additional_search, fetch, extract, identify_gaps) and the loop
+        # is always followed by a final synthesize step, so we only allow
+        # another iteration when there is room for a full iteration AND the
+        # eventual synthesis. This makes max_steps a hard cap on total steps.
+        # (Steps: initial round = 4, each iteration <= 4, final synthesize = 1.)
+        if len(findings.research_steps) + 5 > limits.max_steps:
+            return False
+        # Bounded by search operations performed.
+        search_steps = sum(
+            1 for s in findings.research_steps
+            if s.action in ("search", "additional_search")
+        )
+        if search_steps >= limits.max_searches:
+            return False
+        # Bounded by fetch operations performed.
+        fetch_steps = sum(1 for s in findings.research_steps if s.action == "fetch")
+        if fetch_steps >= limits.max_fetches:
+            return False
+        # Bounded by overall wall-clock timeout.
+        if limits.overall_timeout_s and (time.perf_counter() - t0) >= limits.overall_timeout_s:
+            return False
+        return True
 
     # -------------------------------------------------------------------------
     # Step Implementations
@@ -672,8 +737,22 @@ class ResearchPipeline:
         findings.research_steps.append(step)
         return findings
 
-    def _step_additional_search(self, findings: ResearchFindings, limits: ResearchLimits) -> ResearchFindings:
-        """Step 5: Perform additional searches for identified gaps."""
+    def _step_additional_search(
+        self,
+        findings: ResearchFindings,
+        limits: ResearchLimits,
+        searched_queries: Optional[set[str]] = None,
+    ) -> ResearchFindings:
+        """Iterative step: perform additional searches for identified gaps.
+
+        Deduplicates both URLs and search queries across every round to prevent
+        repeated identical work (and infinite loops). ``searched_queries`` is a
+        caller-owned set of lowercased queries already issued; it is updated in
+        place so the dedup survives across multiple research rounds.
+        """
+        if searched_queries is None:
+            searched_queries = set()
+
         step_t0 = time.perf_counter()
         step = ResearchStep(step_number=len(findings.research_steps) + 1, action="additional_search")
 
@@ -686,16 +765,20 @@ class ResearchPipeline:
 
         new_sources_count = 0
         existing_urls = {s.url for s in findings.sources}
+        # Cap how many gaps drive searches per round, and never exceed limits.
+        max_gaps_this_round = 2
 
-        for gap in findings.gaps[:2]:  # Limit to top 2 gaps
+        for gap in findings.gaps[:max_gaps_this_round]:
             if len(findings.research_steps) >= limits.max_steps:
                 break
-            if len([s for s in findings.sources if s.fetch_status == "pending" or s.fetch_status == "success"]) >= limits.max_fetches:
-                break
 
-            # Generate search query from gap
-            search_query = f"{findings.query} {gap}"
-            
+            # Generate search query from gap; dedupe against prior queries.
+            search_query = f"{findings.query} {gap}".strip()
+            query_key = search_query.lower()
+            if query_key in searched_queries:
+                continue
+            searched_queries.add(query_key)
+
             results: list[dict[str, Any]] = []
             if search_tool:
                 try:
