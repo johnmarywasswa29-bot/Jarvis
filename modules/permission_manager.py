@@ -30,6 +30,10 @@ class PermissionManager:
         "desktop_control": "CAUTION",
         # Phase A — source modification (CAUTION, requires confirmation)
         "file_edit": "CAUTION",        # in-place edit / apply patch
+        # Phase B — controlled execution (DANGEROUS, explicit confirmation)
+        "shell": "DANGEROUS",
+        "build": "DANGEROUS",
+        "dependency": "DANGEROUS",
         # DANGEROUS
         "terminal": "DANGEROUS",
         "execute_python": "DANGEROUS",

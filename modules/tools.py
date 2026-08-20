@@ -46,11 +46,14 @@ _WINDOWS = platform.system() == "Windows"
 
 
 class ToolResult:
-    def __init__(self, success: bool, output: str, error: str = "", duration_s: float = 0.0) -> None:
+    def __init__(self, success: bool, output: str, error: str = "", duration_s: float = 0.0,
+                 exit_code: int | None = None, metadata: dict | None = None) -> None:
         self.success = success
         self.output = output
         self.error = error
         self.duration_s = duration_s
+        self.exit_code = exit_code
+        self.metadata = metadata or {}
 
     def __str__(self) -> str:
         if self.success:
@@ -499,6 +502,11 @@ class ToolRegistry:
             ProjectTestTool,
             WorkspaceObserveTool,
         )
+        from modules.control_tools import (
+            ShellTool,
+            BuildTool,
+            DependencyTool,
+        )
 
         base_tools: list[BaseTool] = [
             WebSearchTool(),
@@ -513,6 +521,10 @@ class ToolRegistry:
             FileEditTool(self.config),
             ProjectTestTool(self.config),
             WorkspaceObserveTool(self.config),
+            # Phase B controlled execution (all DANGEROUS, confirmation-gated).
+            ShellTool(self.config),
+            BuildTool(self.config),
+            DependencyTool(self.config),
         ]
         plugin_tools: list[BaseTool] = []
         if _HAS_MCP:
