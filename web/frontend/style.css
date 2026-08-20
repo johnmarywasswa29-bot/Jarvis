@@ -1,0 +1,458 @@
+/* Jarvis Web UI Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-primary: #0d0d0f;
+    --bg-secondary: #141418;
+    --bg-tertiary: #1c1c22;
+    --text-primary: #e8e8ec;
+    --text-secondary: #9a9aab;
+    --text-muted: #6b6b7a;
+    --accent: #00d4aa;
+    --accent-dim: #00b38f;
+    --border: #2a2a35;
+    --user-bubble: #1a1a24;
+    --assistant-bubble: #16161c;
+    --error-bg: #2a1414;
+    --error-text: #ff6b6b;
+    --shadow: rgba(0, 0, 0, 0.4);
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+/* Header */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logo svg {
+    color: var(--accent);
+}
+
+.title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+}
+
+.status.connected .status-indicator {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+}
+
+.status.connecting .status-indicator {
+    background: #ffb84d;
+    animation: pulse 1.5s infinite;
+}
+
+.status.disconnected .status-indicator {
+    background: #ff6b6b;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Chat Area */
+.chat-area {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+}
+
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-right: 8px;
+    scroll-behavior: smooth;
+}
+
+.messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.messages::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+.message {
+    display: flex;
+    gap: 12px;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.message.user .message-avatar {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+.message.assistant .message-avatar {
+    background: var(--bg-tertiary);
+    color: var(--accent);
+    border: 1px solid var(--border);
+}
+
+.message.system .message-avatar {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+
+.message-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.message-bubble {
+    padding: 12px 16px;
+    border-radius: 16px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-width: 100%;
+}
+
+.message.user .message-bubble {
+    background: var(--user-bubble);
+    border: 1px solid var(--border);
+    border-bottom-right-radius: 4px;
+}
+
+.message.assistant .message-bubble {
+    background: var(--assistant-bubble);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+}
+
+.message.system .message-bubble {
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 8px 16px;
+    border: none;
+}
+
+/* Streaming cursor */
+.message.assistant .message-bubble.streaming::after {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 1.1em;
+    background: var(--accent);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+/* Input Area */
+.input-area {
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.message-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 8px 16px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-wrapper:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15);
+}
+
+#messageInput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 1rem;
+    line-height: 1.5;
+    min-height: 24px;
+    max-height: 120px;
+    resize: none;
+    font-family: inherit;
+}
+
+#messageInput::placeholder {
+    color: var(--text-muted);
+}
+
+.send-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    color: var(--bg-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.send-button:hover {
+    background: var(--accent-dim);
+    transform: scale(1.05);
+}
+
+.send-button:active {
+    transform: scale(0.98);
+}
+
+.send-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.input-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: right;
+    padding-right: 4px;
+}
+
+/* Error Toast */
+.error-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--error-bg);
+    color: var(--error-text);
+    padding: 12px 20px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 107, 107, 0.3);
+    box-shadow: 0 8px 32px var(--shadow);
+    font-size: 0.85rem;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s ease;
+}
+
+.error-toast.visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .header {
+        padding: 12px 16px;
+    }
+    
+    .chat-area {
+        padding: 16px;
+    }
+    
+    .input-area {
+        padding: 12px 16px;
+    }
+    
+    .title {
+        font-size: 1.1rem;
+    }
+}
+
+/* Phase 9H: research proposal / confirmation card */
+.confirmation-card {
+	border: 1px solid rgba(255, 193, 7, 0.4);
+	background: rgba(255, 193, 7, 0.06);
+	border-radius: 12px;
+	padding: 14px 16px;
+}
+.confirm-header {
+	font-weight: 600;
+	margin-bottom: 8px;
+}
+.confirm-objective {
+	font-size: 0.95rem;
+	margin-bottom: 6px;
+}
+.confirm-meta {
+	font-size: 0.8rem;
+	color: var(--text-muted);
+	margin-bottom: 8px;
+}
+.confirm-section-title {
+	font-size: 0.78rem;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-muted);
+	margin: 10px 0 4px;
+}
+.confirm-list {
+	margin: 0;
+	padding-left: 18px;
+	font-size: 0.85rem;
+}
+.confirm-list li {
+	margin: 2px 0;
+}
+.confirm-expiry {
+	font-size: 0.72rem;
+	color: var(--text-muted);
+	margin-top: 8px;
+}
+.confirm-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+	flex-wrap: wrap;
+}
+.confirm-btn {
+	border: none;
+	border-radius: 8px;
+	padding: 8px 14px;
+	font-size: 0.85rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+.confirm-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.confirm-btn.accept {
+	background: var(--accent);
+	color: #fff;
+}
+.confirm-btn.deny {
+	background: rgba(255, 107, 107, 0.18);
+	color: var(--error-text);
+	border: 1px solid rgba(255, 107, 107, 0.4);
+}
+.confirm-btn.abort {
+	background: rgba(255, 255, 255, 0.08);
+	color: var(--text-muted);
+}
+.confirm-note {
+	font-size: 0.72rem;
+	color: var(--text-muted);
+	margin-top: 8px;
+}
+.research-phase {
+	font-size: 0.82rem;
+	color: var(--text-muted);
+	background: rgba(255, 255, 255, 0.04);
+	border-radius: 8px;
+	padding: 6px 10px;
+}
+.risk-badge {
+	display: inline-block;
+	font-size: 0.68rem;
+	font-weight: 600;
+	padding: 1px 7px;
+	border-radius: 999px;
+	margin-left: 4px;
+	vertical-align: middle;
+}
+.risk-low { background: rgba(76, 175, 80, 0.2); color: #8be29a; }
+.risk-medium { background: rgba(255, 193, 7, 0.2); color: #ffd966; }
+.risk-high { background: rgba(255, 107, 107, 0.2); color: #ff9b9b; }

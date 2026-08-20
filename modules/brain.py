@@ -13,6 +13,7 @@ from modules.llm_providers import get_llm_provider
 
 logger = get_logger("brain")
 
+
 SYSTEM_PROMPT = (
     "You are Jarvis, a private local AI assistant running on the user's Windows laptop. "
     "You are helpful, concise, and can use tools when needed. "
@@ -31,6 +32,7 @@ class JarvisBrain:
         memory: JarvisMemory,
         *,
         ollama_health: Any = None,
+        research_decider: Any = None,
     ) -> None:
         self.config = config
         self.tools = tools
@@ -38,6 +40,56 @@ class JarvisBrain:
         self.ollama_health = ollama_health
         self.logger = get_logger("brain")
         self.llm_provider = get_llm_provider(config)
+        # Optional research-workflow bridge (9G). If a decider is provided the
+        # brain can route research/plan/execute requests through it; otherwise
+        # the bridge is only used for research-only classification (no execution
+        # without an explicit decider).
+        self.research_decider = research_decider
+        self._research_bridge: Any = None
+
+    def _get_research_bridge(self) -> Any:
+        """Lazily build the 9G research bridge (reusing ResearchWorkflow)."""
+        if self._research_bridge is None:
+            try:
+                from research.orchestrator import ResearchWorkflow
+                from research.bridge import ResearchBridge, ResearchIntent
+
+                workflow = ResearchWorkflow(
+                    config=self.config,
+                    tool_registry=self.tools,
+                    permission_manager=None,
+                    decider=self.research_decider,
+                )
+                self._research_bridge = ResearchBridge(
+                    workflow, decider=self.research_decider
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                self.logger.warning("Research bridge unavailable: %s", exc)
+                self._research_bridge = False
+        return self._research_bridge or None
+
+    def _maybe_research(self, prompt: str) -> Optional[str]:
+        """If the prompt needs the research workflow, run it and return text.
+
+        Returns None for ordinary requests so the existing brain path is used
+        unchanged. Never executes consequential actions without the configured
+        decider.
+        """
+        bridge = self._get_research_bridge()
+        if bridge is None:
+            return None
+        from research.bridge import ResearchIntent
+        intent = bridge.classify(prompt)
+        if intent == ResearchIntent.NONE:
+            return None
+        try:
+            return bridge.handle(prompt, intent, decider=self.research_decider)
+        except Exception as exc:
+            self.logger.error("Research bridge failed: %s", exc)
+            return (
+                f"I started research but hit an error: {exc}. "
+                "Your other requests still work normally."
+            )
 
     def _healthy(self) -> bool:
         if self.ollama_health is None:
@@ -103,15 +155,25 @@ class JarvisBrain:
             return data
         return None
 
-    def run_stream(
+    async def run_stream_async(
         self,
         prompt: str,
         on_chunk: Callable[[str], None] | None = None,
         extra_context: Optional[list[str]] = None,
     ) -> str:
+        """Native async streaming - can be awaited directly in FastAPI event loop."""
         streaming = on_chunk is not None
         t0 = time.time()
         q_t0 = time.perf_counter()
+
+        # 9G: route research/plan/execute requests through the research bridge.
+        # For research-only/accepted flows we return the complete rendered text
+        # as a single answer (the Web UI can later stream progress separately).
+        routed = self._maybe_research(prompt)
+        if routed is not None:
+            if on_chunk:
+                on_chunk(routed)
+            return routed
 
         messages = self._build_messages(prompt, extra_context=extra_context)
         q_t1 = time.perf_counter()
@@ -122,21 +184,16 @@ class JarvisBrain:
             if streaming:
                 first_token_seen = False
                 assembled = ""
-                # Run async streaming in event loop
-                async def stream_and_collect():
-                    nonlocal first_token_seen, assembled, answer_text
-                    async for part in self._stream_provider(self._build_messages(prompt, extra_context=extra_context)):
-                        if not first_token_seen:
-                            first_token_seen = True
-                            self.logger.debug("[chat] first_token_received elapsed=%.3fms", (time.perf_counter() - q_t0) * 1000)
-                        if on_chunk:
-                            on_chunk(part)
-                        assembled += part
-                    answer_text = assembled
-
-                asyncio.run(stream_and_collect())
+                async for part in self._stream_provider(messages):
+                    if not first_token_seen:
+                        first_token_seen = True
+                        self.logger.debug("[chat] first_token_received elapsed=%.3fms", (time.perf_counter() - q_t0) * 1000)
+                    if on_chunk:
+                        on_chunk(part)
+                    assembled += part
+                answer_text = assembled
             else:
-                answer_text = self._call_provider(self._build_messages(prompt))
+                answer_text = self._call_provider(messages)
         except Exception as exc:
             self.logger.error("Provider call failed: %s", exc)
             if not answer_text:
@@ -145,8 +202,23 @@ class JarvisBrain:
         self.logger.debug("[chat] completion elapsed=%.3fms", (time.perf_counter() - q_t0) * 1000)
         return answer_text.strip()
 
+    def run_stream(
+        self,
+        prompt: str,
+        on_chunk: Callable[[str], None] | None = None,
+        extra_context: Optional[list[str]] = None,
+    ) -> str:
+        """Synchronous wrapper for backward compatibility with desktop UI."""
+        return asyncio.run(self.run_stream_async(prompt, on_chunk, extra_context))
+
     def run(self, prompt: str, extra_context: Optional[list[str]] = None) -> str:
         t0 = time.time()
+        # 9G: route research/plan/execute requests through the research bridge.
+        # Ordinary requests return None here and continue down the existing path.
+        routed = self._maybe_research(prompt)
+        if routed is not None:
+            return routed
+
         context = self.memory.get_recent_context()
         t1 = time.time()
         self.logger.debug("[chat] memory_context elapsed=%.3f", t1 - t0)

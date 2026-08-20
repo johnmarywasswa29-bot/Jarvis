@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="16" cy="16" r="15" stroke="currentColor" stroke-width="2"/>
+                    <path d="M16 8C11.5817 8 8 11.5817 8 16C8 20.4183 11.5817 24 16 24C20.4183 24 24 20.4183 24 16C24 11.5817 20.4183 8 16 8Z" fill="currentColor"/>
+                    <path d="M16 11V21M11 16H21" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+                <span class="title">Jarvis</span>
+            </div>
+            <div class="header-controls">
+                <button class="icon-btn" id="voiceBtn" aria-label="Start voice input" title="Voice input">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                        <line x1="8" y1="22" x2="16" y2="22"></line>
+                    </svg>
+                </button>
+                <div class="status" id="connectionStatus">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-container">
+            <aside class="sidebar" id="sidebar">
+                <nav class="sidebar-nav">
+                    <button class="nav-btn active" data-panel="chat" aria-label="Chat">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span>Chat</span>
+                    </button>
+                    <button class="nav-btn" data-panel="memory" aria-label="Memory">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M6 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.414"></path>
+                            <path d="M10 2v4"></path>
+                            <path d="M18 2v4"></path>
+                            <path d="M22 14H6"></path>
+                            <path d="M6 18h.01"></path>
+                            <path d="M10 18h.01"></path>
+                            <path d="M14 18h.01"></path>
+                            <path d="M18 18h.01"></path>
+                            <path d="M22 18h.01"></path>
+                        </svg>
+                        <span>Memory</span>
+                    </button>
+                    <button class="nav-btn" data-panel="workspace" aria-label="Workspace">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <path d="M8 21h8"></path>
+                            <path d="M12 17v4"></path>
+                        </svg>
+                        <span>Workspace</span>
+                    </button>
+                    <button class="nav-btn" data-panel="history" aria-label="History">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <span>History</span>
+                    </button>
+                </nav>
+            </aside>
+
+            <main class="chat-area" id="chatArea">
+                <div class="panel active" id="panel-chat">
+                    <div class="messages" id="messages">
+                        <div class="message system">
+                            <div class="message-avatar">J</div>
+                            <div class="message-content">
+                                <div class="message-bubble">
+                                    Welcome to Jarvis. Type a message to begin.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" id="panel-memory">
+                    <div class="panel-header">
+                        <h2>Memory</h2>
+                    </div>
+                    <div class="memory-search">
+                        <input type="text" id="memorySearchInput" placeholder="Search memories...">
+                        <button id="memorySearchBtn" class="btn-primary">Search</button>
+                    </div>
+                    <div class="memory-create">
+                        <textarea id="memoryContentInput" placeholder="Add a new memory..."></textarea>
+                        <div class="memory-create-options">
+                            <select id="memoryTypeSelect">
+                                <option value="episodic">Episodic</option>
+                                <option value="semantic">Semantic</option>
+                                <option value="procedural">Procedural</option>
+                            </select>
+                            <input type="number" id="memoryImportanceInput" placeholder="Importance (0-1)" step="0.1" min="0" max="1" value="0.5">
+                            <input type="number" id="memoryConfidenceInput" placeholder="Confidence (0-1)" step="0.1" min="0" max="1" value="0.5">
+                        </div>
+                        <button id="memoryAddBtn" class="btn-primary">Add Memory</button>
+                    </div>
+                    <div class="memory-results" id="memoryResults"></div>
+                </div>
+
+                <div class="panel" id="panel-workspace">
+                    <div class="panel-header">
+                        <h2>Workspace</h2>
+                    </div>
+                    <div class="workspace-info" id="workspaceInfo">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <label>Project</label>
+                                <span id="wsProject">-</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Language</label>
+                                <span id="wsLanguage">-</span>
+                            </div>
+                            <div class="info-item">
+                                <label>IDE</label>
+                                <span id="wsIde">-</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Repository</label>
+                                <span id="wsRepo">-</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Directory</label>
+                                <span id="wsDir">-</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Git Repo</label>
+                                <span id="wsGitRepo">-</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Applications</label>
+                                <span id="wsApps">-</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Confidence</label>
+                                <span id="wsConfidence">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="workspace-projects">
+                        <h3>Recent Projects</h3>
+                        <ul id="workspaceProjects"></ul>
+                    </div>
+                </div>
+
+                <div class="panel" id="panel-history">
+                    <div class="panel-header">
+                        <h2>History</h2>
+                        <button id="historyClearBtn" class="btn-danger">Clear</button>
+                    </div>
+                    <div class="history-list" id="historyList"></div>
+                </div>
+            </main>
+        </div>
+
+        <footer class="input-area">
+            <form id="messageForm" class="message-form">
+                <div class="input-wrapper">
+                    <input 
+                        type="text" 
+                        id="messageInput" 
+                        placeholder="Ask Jarvis anything..." 
+                        autocomplete="off"
+                        spellcheck="true"
+                    >
+                    <button type="submit" id="sendButton" class="send-button" aria-label="Send message">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                    <button type="button" id="voiceRecordBtn" class="icon-btn" aria-label="Record voice" title="Voice input (hold to record)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                        </svg>
+                    </button>
+                    <button type="button" id="stopSpeakingBtn" class="icon-btn" aria-label="Stop speaking" title="Stop speaking" style="display: none;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="6" y="4" width="4" height="16"></rect>
+                            <rect x="14" y="4" width="4" height="16"></rect>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-hint">Press Enter to send · Hold 🎙 to speak</div>
+            </form>
+        </footer>
+    </div>
+
+    <div class="error-toast" id="errorToast" role="alert" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -21,6 +21,8 @@ from ddgs import DDGS
 from modules.config import JarvisConfig
 from modules.logger import get_logger
 from modules.permission_manager import PermissionManager
+from research.fetcher import fetch_url, FetchResult
+from research.extractor import extract_content, ExtractionResult
 
 logger = get_logger("tools")
 
@@ -199,10 +201,10 @@ class WebSearchTool(BaseTool):
         if not query:
             return ToolResult(False, "", error="Missing query", duration_s=time.time() - t0)
         try:
-            results: list[dict[str, Any]] = []
-            with DDGS() as ddgs:
-                for r in ddgs.text(query, max_results=5):
-                    results.append(r)
+            from research.fetcher import search_web
+
+            # Bounded: DDGS has no built-in timeout, so enforce a hard ceiling.
+            results = search_web(query, max_results=5)
 
             if not results:
                 return ToolResult(True, f"No web results found for '{query}'", duration_s=time.time() - t0)
@@ -217,6 +219,55 @@ class WebSearchTool(BaseTool):
             return ToolResult(True, summary, duration_s=time.time() - t0)
         except Exception as exc:
             return ToolResult(False, "", error=f"Web search error: {exc}", duration_s=time.time() - t0)
+
+
+class WebFetchTool(BaseTool):
+    name = "web_fetch"
+    description = "Fetch and extract content from a specific URL. Use after web_search to read a result."
+
+    def can_handle(self, prompt: str) -> bool:
+        low = prompt.lower()
+        return any(x in low for x in ["fetch", "read url", "open url", "read page", "fetch page"])
+
+    def execute(self, url: str = "", **kwargs: Any) -> ToolResult:
+        t0 = time.time()
+        url = (url or kwargs.get("url", "")).strip()
+        if not url:
+            return ToolResult(False, "", error="Missing URL", duration_s=time.time() - t0)
+        
+        # Validate URL scheme
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return ToolResult(False, "", error=f"Unsupported scheme: {parsed.scheme}. Only http/https allowed.", duration_s=time.time() - t0)
+        
+        try:
+            # Fetch the URL
+            fetch_result = fetch_url(url)
+            if not fetch_result.success:
+                return ToolResult(False, "", error=f"Fetch failed: {fetch_result.error}", duration_s=time.time() - t0)
+            
+            # Extract content
+            extraction_result = extract_content(fetch_result.content, url=fetch_result.final_url)
+            if not extraction_result.success:
+                return ToolResult(False, "", error=f"Extraction failed: {extraction_result.error}", duration_s=time.time() - t0)
+            
+            # Prepare structured result
+            output = {
+                "url": fetch_result.final_url,
+                "original_url": url,
+                "title": extraction_result.title or fetch_result.metadata.get("title", ""),
+                "text": extraction_result.text[:5000],  # Limit for tool output
+                "metadata": extraction_result.metadata,
+                "extraction_method": extraction_result.method,
+            }
+            
+            summary = f"Fetched: {output['url']}\nTitle: {output['title']}\nMethod: {output['extraction_method']}\nText preview: {output['text'][:500]}..."
+            
+            return ToolResult(True, summary, duration_s=time.time() - t0)
+            
+        except Exception as exc:
+            return ToolResult(False, "", error=f"Web fetch error: {exc}", duration_s=time.time() - t0)
 
 
 class DesktopControlTool(BaseTool):
@@ -442,6 +493,7 @@ class ToolRegistry:
     def _init_tools(self) -> None:
         base_tools: list[BaseTool] = [
             WebSearchTool(),
+            WebFetchTool(),
             DesktopControlTool(self.config),
             CodeExecutionTool(self.config, permissions=self.permissions),
             FileSystemTool(),
@@ -465,6 +517,25 @@ class ToolRegistry:
         for tool in self.tools:
             if tool.name == "code_execution" and hasattr(tool, "_permissions"):
                 tool._permissions = permissions
+
+    def has_tool(self, name: str) -> bool:
+        """Return True if a registered tool with ``name`` exists."""
+        return any(t.name == name for t in self.tools)
+
+    def get_tool(self, name: str) -> BaseTool | None:
+        """Return the registered tool with ``name`` or None if unknown.
+
+        Used by the planner to validate that a plan step references a real,
+        supported tool before the plan can become an executable proposal.
+        """
+        for tool in self.tools:
+            if tool.name == name:
+                return tool
+        return None
+
+    def tool_names(self) -> list[str]:
+        """Names of all currently registered (enabled) tools."""
+        return [t.name for t in self.tools]
 
     def select_tools(self, prompt: str) -> list[BaseTool]:
         matched = [t for t in self.tools if t.enabled and t.can_handle(prompt)]
