@@ -491,6 +491,15 @@ class ToolRegistry:
         self._init_tools()
 
     def _init_tools(self) -> None:
+        # Late import to avoid a hard dependency at module import time; these
+        # tools reuse BaseTool/ToolResult and add no new external deps.
+        from modules.capability_tools import (
+            GitTool,
+            FileEditTool,
+            ProjectTestTool,
+            WorkspaceObserveTool,
+        )
+
         base_tools: list[BaseTool] = [
             WebSearchTool(),
             WebFetchTool(),
@@ -499,6 +508,11 @@ class ToolRegistry:
             FileSystemTool(),
             CalculatorTool(),
             SystemControlTool(),
+            # Phase A capability foundation (read-only / CAUTION edits only).
+            GitTool(self.config),
+            FileEditTool(self.config),
+            ProjectTestTool(self.config),
+            WorkspaceObserveTool(self.config),
         ]
         plugin_tools: list[BaseTool] = []
         if _HAS_MCP:

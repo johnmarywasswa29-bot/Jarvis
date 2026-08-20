@@ -15,6 +15,10 @@ class PermissionManager:
         "calculator": "SAFE",
         "read_clipboard": "SAFE",
         "screenshot": "SAFE",
+        # Phase A capability foundation — read-only / observation (SAFE)
+        "git": "SAFE",                 # GitTool is read-only inspection only
+        "test_execution": "SAFE",      # observation of code behavior
+        "workspace_observe": "SAFE",    # project-state observation
         # CAUTION
         "search": "CAUTION",
         "web_search": "CAUTION",
@@ -24,6 +28,8 @@ class PermissionManager:
         "read_files": "CAUTION",
         "filesystem:read": "CAUTION",
         "desktop_control": "CAUTION",
+        # Phase A — source modification (CAUTION, requires confirmation)
+        "file_edit": "CAUTION",        # in-place edit / apply patch
         # DANGEROUS
         "terminal": "DANGEROUS",
         "execute_python": "DANGEROUS",
