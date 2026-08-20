@@ -81,6 +81,7 @@ class RuntimeContext:
 
     # orchestration
     orchestration: Any = None
+    agent_loop: Any = None
 
     # misc
     goal_manager: Any = None
@@ -114,6 +115,7 @@ class RuntimeContext:
             "workflow_manager": self.workflow_manager,
             "proactive_manager": self.proactive_manager,
             "orchestration": self.orchestration,
+            "agent_loop": self.agent_loop,
             "goal_manager": self.goal_manager,
             "task_queue": self.task_queue,
         }
@@ -242,6 +244,9 @@ def build_runtime(config: Optional[Any] = None, repo: Optional[Path] = None) -> 
             _ET.HABIT_LEARNED, _ET.WORKSPACE_CHANGED, _ET.RAG_SEARCH_COMPLETED,
             _ET.CALENDAR_EVENT_CREATED, _ET.CALENDAR_REMINDER_FIRED,
             _ET.PROACTIVE_SUGGESTION_GENERATED, _ET.APP_STARTED, _ET.APP_CLOSED,
+            _ET.AGENT_ITERATION_STARTED, _ET.AGENT_EXECUTION_COMPLETED,
+            _ET.AGENT_VERIFICATION_COMPLETED, _ET.AGENT_REPLAN_COMPLETED,
+            _ET.AGENT_COMPLETED, _ET.AGENT_ABORTED,
             _ET.CUSTOM,
         ]
         for _et in _observed:
@@ -278,6 +283,23 @@ def build_runtime(config: Optional[Any] = None, repo: Optional[Path] = None) -> 
         "tool_registry",
         ctx,
         lambda: ToolRegistry(ctx.config, permissions=ctx.permission_manager),
+    )
+
+    # 3b. bounded AgentLoop (Phase D) — reuses the already-built
+    #     permission_manager + tool_registry + event_bus. It orchestrates
+    #     ProposalExecutor -> Verifier -> Replanner through the EXISTING
+    #     confirmation gate (confirm_fn / PermissionManager). No new execution
+    #     engine, no autonomous execution beyond the 20-iteration hard cap.
+    from proposal.agent_loop import AgentLoop  # noqa: E402
+
+    ctx.agent_loop = _safe(
+        "agent_loop",
+        ctx,
+        lambda: AgentLoop(
+            ctx.tool_registry,
+            ctx.permission_manager,
+            event_bus=ctx.event_bus,
+        ),
     )
 
     # 4. memory

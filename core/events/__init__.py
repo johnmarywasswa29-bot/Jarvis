@@ -68,6 +68,13 @@ class EventType(str, Enum):
     ERROR_LOGGED = "log.error"
     WARNING_LOGGED = "log.warning"
     CUSTOM = "custom"
+    # AgentLoop (bounded execution/recovery orchestration)
+    AGENT_ITERATION_STARTED = "agent.iteration.started"
+    AGENT_EXECUTION_COMPLETED = "agent.execution.completed"
+    AGENT_VERIFICATION_COMPLETED = "agent.verification.completed"
+    AGENT_REPLAN_COMPLETED = "agent.replan.completed"
+    AGENT_COMPLETED = "agent.completed"
+    AGENT_ABORTED = "agent.aborted"
 
 
 @dataclass

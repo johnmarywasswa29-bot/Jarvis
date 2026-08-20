@@ -42,6 +42,7 @@ from proposal.state import Proposal, ProposalStatus
 from proposal.validator import ProposalValidator
 from proposal.verification import Verifier, VerificationResult, VerificationStatus
 from proposal.replanner import Replanner, ReplanResult, ReplanStatus
+from core.events import EventType
 
 
 class AgentLoopStatus(str, Enum):
@@ -53,13 +54,14 @@ class AgentLoopStatus(str, Enum):
     STOPPED_ABORTED = "stopped_aborted"        # user abort / disconnect
 
 
-# Event type constants (published as strings on the existing EventBus).
-AGENT_ITERATION_STARTED = "agent.iteration.started"
-AGENT_EXECUTION_COMPLETED = "agent.execution.completed"
-AGENT_VERIFICATION_COMPLETED = "agent.verification.completed"
-AGENT_REPLAN_COMPLETED = "agent.replan.completed"
-AGENT_COMPLETED = "agent.completed"
-AGENT_ABORTED = "agent.aborted"
+# Event types published as real core.events.Event objects on the existing
+# EventBus (Phase E: first-class EventType members).
+AGENT_ITERATION_STARTED = EventType.AGENT_ITERATION_STARTED
+AGENT_EXECUTION_COMPLETED = EventType.AGENT_EXECUTION_COMPLETED
+AGENT_VERIFICATION_COMPLETED = EventType.AGENT_VERIFICATION_COMPLETED
+AGENT_REPLAN_COMPLETED = EventType.AGENT_REPLAN_COMPLETED
+AGENT_COMPLETED = EventType.AGENT_COMPLETED
+AGENT_ABORTED = EventType.AGENT_ABORTED
 
 # Hard safety bound: callers may request any max_iterations, but it is always
 # clamped into [1, HARD_MAX_ITERATIONS] so the loop can never be effectively
@@ -350,7 +352,7 @@ class AgentLoop:
         try:
             from core.events import Event, Severity
             event = Event(
-                event_type=event_type,  # string key; EventBus routes by str()
+                event_type=event_type,  # real core.events.EventType member
                 source="agent_loop",
                 payload=payload,
                 severity=Severity.INFO,
