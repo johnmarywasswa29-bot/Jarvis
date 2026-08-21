@@ -109,6 +109,57 @@ class JarvisAssistant:
             listener_task.cancel()
             self.cleanup()
     
+    def run_agent(
+        self,
+        objective: str,
+        *,
+        max_iterations: int = 5,
+        pipeline: Any = None,
+        planner: Any = None,
+        confirm_fn: Any = None,
+    ) -> Any:
+        """Run a user objective through the bounded runtime AgentLoop.
+
+        Reuses the EXISTING runtime subsystems (self._ctx.agent_loop,
+        self.tools, self.permissions) and the EXISTING proposal-generation
+        path (ResearchPipeline -> ResearchPlanner.plan -> to_proposal) to
+        obtain a VALIDATED Proposal, then executes it exclusively through
+        ctx.agent_loop.run(...) which delegates to the real ProposalExecutor
+        behind the existing PermissionManager confirmation gate.
+
+        No second execution engine, no automatic confirmation, no autonomous
+        background execution. confirm_fn defaults to the existing
+        PermissionManager.confirm (human-in-the-loop).
+        """
+        from research.pipeline import ResearchPipeline
+        from research.planner import ResearchPlanner
+
+        pipeline = pipeline or ResearchPipeline(self.config, self.tools)
+        planner = planner or ResearchPlanner(
+            self.config, self.tools, self.permissions
+        )
+
+        findings = pipeline.research(objective)
+        plan = planner.plan(findings)
+        proposal = planner.to_proposal(plan)
+
+        confirm = confirm_fn or self.permissions.confirm
+        result = self._ctx.agent_loop.run(
+            objective,
+            proposal,
+            confirm_fn=confirm,
+            max_iterations=max_iterations,
+        )
+
+        # Surface a concise, non-secret summary to the operator.
+        print(f"[agent] status={result.status.value}")
+        print(f"[agent] iterations={len(result.iterations)}")
+        if result.final_verification is not None:
+            print(f"[agent] verification={result.final_verification.status.value}")
+        if result.message:
+            print(f"[agent] message={result.message}")
+        return result
+
     def cleanup(self) -> None:
         logger.info("Tearing down Jarvis...")
         try:
@@ -174,6 +225,37 @@ def main() -> int:
         except Exception as exc:
             _log_startup_crash(exc)
         return 0
+
+    # Phase F: bounded AgentLoop-backed CLI command. Runs synchronously in the
+    # foreground (no autonomous background execution) and reuses the existing
+    # runtime + confirmation gate.
+    if len(sys.argv) > 1 and sys.argv[1] == "agent":
+        max_iterations = 5
+        args = sys.argv[2:]
+        if args and args[0] == "--max-iterations":
+            try:
+                max_iterations = int(args[1])
+                args = args[2:]
+            except (IndexError, ValueError):
+                print("--max-iterations requires an integer", file=sys.stderr)
+                return 2
+        objective = " ".join(args).strip()
+        if not objective:
+            print("usage: python jarvis.py agent \"<objective>\" [--max-iterations N]",
+                  file=sys.stderr)
+            return 2
+        try:
+            assistant = JarvisAssistant()
+        except Exception as exc:
+            _log_startup_crash(exc)
+            return 1
+        result = assistant.run_agent(objective, max_iterations=max_iterations)
+        assistant.cleanup()
+        if result is None:
+            return 1
+        # DONE is the only fully-successful outcome.
+        return 0 if result.status.value == "done" else 1
+
     try:
         assistant = JarvisAssistant()
         try:
