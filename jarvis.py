@@ -132,16 +132,28 @@ class JarvisAssistant:
         PermissionManager.confirm (human-in-the-loop).
         """
         from research.pipeline import ResearchPipeline
-        from research.planner import ResearchPlanner
+        from research.planner import PlanValidationError, ResearchPlanner
 
         pipeline = pipeline or ResearchPipeline(self.config, self.tools)
         planner = planner or ResearchPlanner(
             self.config, self.tools, self.permissions
         )
 
-        findings = pipeline.research(objective)
-        plan = planner.plan(findings)
-        proposal = planner.to_proposal(plan)
+        # Generate/obtain a VALIDATED Proposal through the existing research
+        # path. If research yields no usable evidence, the planner fails safe
+        # with PlanValidationError — catch it here and report a clean operator
+        # message (no traceback). The fail-safe is preserved: no valid proposal
+        # => no execution.
+        try:
+            findings = pipeline.research(objective)
+            plan = planner.plan(findings)
+            proposal = planner.to_proposal(plan)
+        except PlanValidationError as exc:
+            print(
+                f"Research could not produce a valid plan: {exc}. No action was taken.",
+                file=sys.stderr,
+            )
+            return None
 
         confirm = confirm_fn or self.permissions.confirm
         result = self._ctx.agent_loop.run(
