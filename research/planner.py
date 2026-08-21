@@ -42,6 +42,48 @@ from research.pipeline import ResearchFindings
 logger = logging.getLogger("research.planner")
 
 
+def _extract_json_object(raw: str) -> Optional[str]:
+    """Pull a single JSON object out of an LLM response, or return None.
+
+    Handles the shapes local models actually emit:
+      * pure JSON,
+      * a natural-language preamble followed by the JSON object,
+      * the object wrapped in leading/trailing markdown ``` (or ```json) fences.
+
+    The extraction is strict about *location* only: it returns the substring
+    from the first '{' to the last '}'. It does NOT repair, complete, or invent
+    anything — if that span is truncated or malformed, the caller's json.loads
+    will raise and fail safe. Returns None when no object is present (e.g. an
+    empty or whitespace-only response), so the caller can produce a clean
+    failure instead of feeding whitespace to json.loads.
+    """
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+
+    # Strip a single leading/trailing markdown code fence (with optional
+    # language tag such as ```json). Only one fence on each side is removed.
+    if text.startswith("```"):
+        text = text[3:]
+        # Drop an optional language identifier on that first line.
+        newline = text.find("\n")
+        if newline != -1 and not text[:newline].strip():
+            text = text[newline + 1:]
+        elif text.lower().startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    if text.endswith("```"):
+        text = text[:-3].strip()
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+    return text[start : end + 1]
+
+
 # =============================================================================
 # Plan model
 # =============================================================================
@@ -208,12 +250,19 @@ class LLMResearchPlanSynthesizer(PlanSynthesizer):
         if not response:
             raise PlanValidationError("Plan synthesis returned an empty response.")
 
-        # Best-effort JSON extraction (LLMs sometimes wrap JSON in code fences).
-        text = response.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:]
+        # Best-effort JSON extraction. Local models (e.g. llama3) frequently
+        # prepend a natural-language preamble ("Here is the JSON plan:") or wrap
+        # the object in markdown code fences — sometimes both. We therefore:
+        #   1. strip any leading/trailing ``` fences (with optional language tag),
+        #   2. locate the JSON object span (first '{' … last '}'),
+        #   3. parse ONLY that span.
+        # We never repair, guess, or invent missing JSON: if the object is
+        # truncated or malformed, json.loads raises and we fail safe.
+        text = _extract_json_object(response)
+        if text is None:
+            raise PlanValidationError(
+                "Plan synthesis returned no JSON object to parse."
+            )
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:

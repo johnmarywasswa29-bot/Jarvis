@@ -51,7 +51,7 @@ class OllamaProvider(LLMProvider):
         if client is None:
             return ""
 
-        options = {"num_predict": 192, "temperature": 0.1}
+        options = {"num_predict": 1024, "temperature": 0.1}
         options.update(kwargs.get("options", {}))
 
         try:
@@ -76,7 +76,7 @@ class OllamaProvider(LLMProvider):
         client = self._get_client()
         if client is None:
             return
-        options = {"num_predict": 192, "temperature": 0.1}
+        options = {"num_predict": 1024, "temperature": 0.1}
         options.update(kwargs.get("options", {}))
 
         try:
