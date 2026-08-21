@@ -127,12 +127,28 @@ class JarvisAssistant:
         ctx.agent_loop.run(...) which delegates to the real ProposalExecutor
         behind the existing PermissionManager confirmation gate.
 
+        Operator-facing improvements (Phase I, safety-preserving):
+          #1 iteration/replan visibility via the existing agent.* EventBus
+             events (observation only; no new execution path).
+          #2 read-only, non-blocking preflight readiness WARN (Ollama /
+             egress); never blocks or fails-open the safety path.
+          #3 machine-readable result artifact at logs/agent_last.json
+             (non-secret AgentLoopResult fields only).
+
         No second execution engine, no automatic confirmation, no autonomous
         background execution. confirm_fn defaults to the existing
         PermissionManager.confirm (human-in-the-loop).
         """
+        import json as _json
+        import socket as _socket
+
+        from core.events import EventType
         from research.pipeline import ResearchPipeline
         from research.planner import PlanValidationError, ResearchPlanner
+
+        # --- #2 Preflight readiness (READ-ONLY, non-blocking, WARN only) ---
+        for warn in agent_readiness_warnings(self.config):
+            print(f"[agent] readiness warning: {warn}", file=sys.stderr)
 
         pipeline = pipeline or ResearchPipeline(self.config, self.tools)
         planner = planner or ResearchPlanner(
@@ -153,15 +169,70 @@ class JarvisAssistant:
                 f"Research could not produce a valid plan: {exc}. No action was taken.",
                 file=sys.stderr,
             )
+            write_agent_artifact(REPO, objective, None)
             return None
 
         confirm = confirm_fn or self.permissions.confirm
-        result = self._ctx.agent_loop.run(
-            objective,
-            proposal,
-            confirm_fn=confirm,
-            max_iterations=max_iterations,
-        )
+
+        # --- #1 Surface existing agent.* EventBus events to the operator ---
+        bus = self._ctx.event_bus
+        seen: list = []
+
+        def _on_agent_event(ev):
+            t = ev.event_type.value
+            p = ev.payload or {}
+            if t == EventType.AGENT_ITERATION_STARTED.value:
+                seen.append(t)
+                print(f"[agent] iteration {p.get('iteration')} started")
+            elif t == EventType.AGENT_EXECUTION_COMPLETED.value:
+                seen.append(t)
+                print(f"[agent] execution completed: {p.get('status')}")
+            elif t == EventType.AGENT_VERIFICATION_COMPLETED.value:
+                seen.append(t)
+                print(f"[agent] verification: {p.get('status')}")
+            elif t == EventType.AGENT_REPLAN_COMPLETED.value:
+                seen.append(t)
+                print(f"[agent] replan: {p.get('replan_status')}")
+            elif t == EventType.AGENT_ABORTED.value:
+                seen.append(t)
+                print(f"[agent] aborted: {p.get('status')}")
+            elif t == EventType.AGENT_COMPLETED.value:
+                seen.append(t)
+                print(f"[agent] completed: {p.get('status')}")
+
+        for _et in (
+            EventType.AGENT_ITERATION_STARTED,
+            EventType.AGENT_EXECUTION_COMPLETED,
+            EventType.AGENT_VERIFICATION_COMPLETED,
+            EventType.AGENT_REPLAN_COMPLETED,
+            EventType.AGENT_ABORTED,
+            EventType.AGENT_COMPLETED,
+        ):
+            bus.subscribe(_et, _on_agent_event)
+
+        try:
+            result = self._ctx.agent_loop.run(
+                objective,
+                proposal,
+                confirm_fn=confirm,
+                max_iterations=max_iterations,
+            )
+        finally:
+            for _et in (
+                EventType.AGENT_ITERATION_STARTED,
+                EventType.AGENT_EXECUTION_COMPLETED,
+                EventType.AGENT_VERIFICATION_COMPLETED,
+                EventType.AGENT_REPLAN_COMPLETED,
+                EventType.AGENT_ABORTED,
+                EventType.AGENT_COMPLETED,
+            ):
+                try:
+                    bus.unsubscribe(_et, _on_agent_event)
+                except Exception:
+                    pass
+
+        # --- #3 Machine-readable result artifact (non-secret fields only) ---
+        write_agent_artifact(REPO, objective, result)
 
         # Surface a concise, non-secret summary to the operator.
         print(f"[agent] status={result.status.value}")
@@ -186,6 +257,95 @@ class JarvisAssistant:
             self.memory.shutdown()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------- #
+# Phase I module-level helpers (read-only / observation only; no gate changes).
+# Kept module-level (not methods) so run_agent works on minimal test shims that
+# only expose config/tools/permissions/_ctx, without requiring those helpers.
+# ---------------------------------------------------------------------------- #
+def agent_readiness_warnings(config: Any) -> list[str]:
+    """READ-ONLY, non-blocking preflight checks.
+
+    Returns human-readable warnings. NEVER blocks execution or fails open any
+    safety gate; research/planning proceeds regardless. If a check is
+    unreliable, it reports that instead of asserting readiness.
+    """
+    import socket as _socket
+
+    warnings: list[str] = []
+
+    # Ollama (LLM) reachability — parse host/port from config.
+    base = getattr(config, "llm_base_url", "") or ""
+    host, port = "localhost", 11434
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(base)
+        if parsed.hostname:
+            host = parsed.hostname
+        if parsed.port:
+            port = parsed.port
+    except Exception:
+        pass
+    try:
+        with _socket.create_connection((host, port), timeout=3):
+            pass  # reachable
+    except Exception as exc:  # noqa: BLE001 - readiness is best-effort
+        warnings.append(
+            f"Ollama at {host}:{port} appears unreachable ({type(exc).__name__}); "
+            "LLM-dependent planning may fail."
+        )
+
+    # Outbound research connectivity (best-effort egress probe).
+    egress_ok = False
+    tried: list[str] = []
+    for probe_host in ("duckduckgo.com", "github.com"):
+        tried.append(probe_host)
+        try:
+            with _socket.create_connection((probe_host, 443), timeout=3):
+                egress_ok = True
+                break
+        except Exception:
+            continue
+    if egress_ok:
+        pass  # available
+    else:
+        warnings.append(
+            "Outbound connectivity appears unavailable "
+            f"(could not reach {', '.join(tried)}); web research may fail."
+        )
+
+    return warnings
+
+
+def write_agent_artifact(repo: Any, objective: str, result: Any) -> None:
+    """Write a non-secret JSON artifact of the run (logs/agent_last.json).
+
+    Contains only existing AgentLoopResult fields plus the objective. Never
+    writes secrets, credentials, or raw tool arguments. Best-effort: a write
+    failure must never break the agent run.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    try:
+        out_dir = repo / "logs"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        payload = {"objective": objective}
+        if result is not None and hasattr(result, "to_dict"):
+            payload.update(result.to_dict())
+        else:
+            payload["status"] = "research_failed"
+            payload["message"] = "no valid plan produced; no action taken"
+        (_Path(out_dir) / "agent_last.json").write_text(
+            _json.dumps(payload, indent=2, default=str),
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        # Best-effort artifact; never fail the operator-facing run.
+        pass
 
 
 def _log_startup_crash(exc: BaseException) -> None:
