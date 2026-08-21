@@ -131,6 +131,144 @@ class TestFetcherOffline:
 
 
 @pytest.mark.offline
+class TestSearchWebFallback:
+    """Keyless multi-backend fallback behaviour (offline, fully mocked DDGS)."""
+
+    def _fake_ddgs(self, monkeypatch, backend_results):
+        """Install a fake ddgs.DDGS whose .text(backend=...) returns per backend.
+
+        ``backend_results`` maps backend name -> list[dict] (or an exception to
+        raise). Only backends present as keys produce results; absent/raising
+        backends fall through to the next in the fallback order.
+        """
+        import ddgs
+
+        order = []
+
+        class _FakeDDGS:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def text(self, query, backend=None, max_results=5, **kwargs):
+                order.append(backend)
+                entry = backend_results.get(backend)
+                if entry is None:
+                    # Simulate an upstream challenge / no results.
+                    from ddgs.exceptions import DDGSException
+
+                    raise DDGSException("No results found.")
+                if isinstance(entry, Exception):
+                    raise entry
+                return entry
+
+        monkeypatch.setattr(ddgs, "DDGS", _FakeDDGS)
+        return order
+
+    def test_first_backend_succeeds_no_unnecessary_fallback(self, monkeypatch):
+        """When duckduckgo succeeds, later backends are never queried."""
+        order = self._fake_ddgs(
+            monkeypatch,
+            {"duckduckgo": [{"title": "T", "href": "https://x.test", "body": "B"}]},
+        )
+        results = search_web("q", max_results=5, timeout=5)
+        assert results == [{"title": "T", "href": "https://x.test", "body": "B"}]
+        assert order == ["duckduckgo"]
+
+    def test_first_fails_second_succeeds(self, monkeypatch):
+        """Fallback to the next backend when the first raises."""
+        order = self._fake_ddgs(
+            monkeypatch,
+            {
+                "duckduckgo": Exception("challenged"),
+                "startpage": [{"title": "T2", "href": "https://y.test", "body": "B2"}],
+            },
+        )
+        results = search_web("q", max_results=5, timeout=5)
+        assert results == [{"title": "T2", "href": "https://y.test", "body": "B2"}]
+        assert order == ["duckduckgo", "startpage"]
+
+    def test_all_backends_fail_returns_empty(self, monkeypatch):
+        """Clean empty result when every backend errors / returns nothing."""
+        order = self._fake_ddgs(monkeypatch, {})
+        results = search_web("q", max_results=5, timeout=5)
+        assert results == []
+        # All four authorized backends were tried in order.
+        assert order == ["duckduckgo", "startpage", "mojeek", "yahoo"]
+
+    def test_malformed_results_rejected(self, monkeypatch):
+        """Results missing title/href (or non-dict) are dropped, never accepted."""
+        order = self._fake_ddgs(
+            monkeypatch,
+            {
+                "duckduckgo": [
+                    {"href": "https://x.test"},  # no title
+                    {"title": "", "href": "https://y.test", "body": "b"},  # empty title
+                    "not-a-dict",
+                    # valid title+href (no body key) -> accepted, short-circuits
+                    {"title": "Good", "href": "https://z.test"},
+                ],
+                "startpage": [],  # never reached because duckduckgo yielded a valid record
+            },
+        )
+        results = search_web("q", max_results=5, timeout=5)
+        # Only the well-formed record survives; body defaulted to "".
+        assert results == [{"title": "Good", "href": "https://z.test", "body": ""}]
+        assert order == ["duckduckgo"]
+
+    def test_no_fabricated_results(self, monkeypatch):
+        """A backend that returns nothing must not yield synthetic records."""
+        order = self._fake_ddgs(monkeypatch, {"duckduckgo": []})
+        results = search_web("q", max_results=5, timeout=5)
+        assert results == []
+        assert order == ["duckduckgo", "startpage", "mojeek", "yahoo"]
+
+    def test_body_field_normalized(self, monkeypatch):
+        """A result without a body key still exposes body as a string."""
+        self._fake_ddgs(
+            monkeypatch,
+            {"duckduckgo": [{"title": "T", "href": "https://x.test"}]},
+        )
+        results = search_web("q", max_results=5, timeout=5)
+        assert results[0]["body"] == ""
+
+    def test_fallback_order_preserved(self, monkeypatch):
+        """Authorized preferred order is duckduckgo -> startpage -> mojeek -> yahoo."""
+        from research.fetcher import _SEARCH_BACKENDS
+
+        assert _SEARCH_BACKENDS == ("duckduckgo", "startpage", "mojeek", "yahoo")
+
+
+@pytest.mark.offline
+def test_validate_search_results_accept_filter():
+    """_validate_search_results keeps only well-formed records."""
+    from research.fetcher import _validate_search_results
+
+    raw = [
+        {"title": "A", "href": "https://a.test", "body": "x"},
+        {"title": "", "href": "https://b.test"},
+        {"title": "C", "href": "https://c.test", "body": 123},  # body not str -> kept, sanitized to ""
+        "junk",
+        {"href": "https://d.test", "body": "y"},  # no title
+    ]
+    out = _validate_search_results(raw)
+    # A and C survive; C's non-str body is normalized to "".
+    assert out == [
+        {"title": "A", "href": "https://a.test", "body": "x"},
+        {"title": "C", "href": "https://c.test", "body": ""},
+    ]
+    # Non-str body is sanitized to "" rather than dropped.
+    raw2 = [{"title": "C", "href": "https://c.test", "body": 123}]
+    assert _validate_search_results(raw2) == [
+        {"title": "C", "href": "https://c.test", "body": ""}
+    ]
+    assert _validate_search_results("not a list") == []
+    assert _validate_search_results(None) == []
+
+
+@pytest.mark.offline
 class TestFetcherTimeoutRegression:
     """Regression tests that the hard timeout guard actually bounds calls."""
 

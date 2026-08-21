@@ -390,22 +390,70 @@ class _HardTimeoutExpired(Exception):
 # Bounded web search (DDGS has no built-in timeout)
 # =============================================================================
 
+# =============================================================================
+# Bounded web search with keyless multi-backend fallback (DDGS)
+# =============================================================================
+
+# Keyless fallback backends in preferred order. Every entry is usable without an
+# API key in the installed ddgs package. bing is disabled=True inside ddgs and
+# is intentionally omitted; brave/google/yandex/annasarchive are not part of the
+# authorized fallback. The frozen bundle only contains the engines listed here
+# (see installer/hooks/hook-ddgs.py), so the ddgs engine registry auto-discovers
+# exactly these.
+_SEARCH_BACKENDS = ("duckduckgo", "startpage", "mojeek", "yahoo")
+
+
+def _validate_search_results(raw: object) -> list[dict[str, str]]:
+    """Keep only results that carry the expected title/href/body fields.
+
+    ddgs returns a list of dicts. We reject anything that is not a dict, or that
+    lacks a non-empty title/href (the minimum the research pipeline needs), and
+    we normalize the ``body`` field to a string so downstream consumers always
+    see the same shape. This is a strict *accept* filter: malformed or partial
+    records are dropped, never fabricated or padded with invented text.
+    """
+    clean: list[dict[str, str]] = []
+    if not isinstance(raw, list):
+        return clean
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        href = item.get("href")
+        body = item.get("body", "")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        if not isinstance(href, str) or not href.strip():
+            continue
+        if not isinstance(body, str):
+            body = ""
+        clean.append({"title": title, "href": href, "body": body})
+    return clean
+
+
 def search_web(
     query: str,
     max_results: int = 5,
     timeout: float = DEFAULT_SEARCH_TIMEOUT,
 ) -> list[dict[str, str]]:
-    """Run a DuckDuckGo web search under a hard time bound.
+    """Run a keyless web search under a hard time bound, with backend fallback.
 
     ``ddgs.DDGS`` performs live network IO with no timeout of its own, so a
     stalled search can hang the caller indefinitely. This wrapper runs the
-    search in a worker thread and joins with ``timeout`` seconds; on overrun
-    it returns whatever partial results were collected (or ``[]`` if none).
+    search in a worker thread and joins with ``timeout`` seconds; on overrun it
+    returns whatever partial results were collected (or ``[]`` if none).
+
+    Backends are tried in ``_SEARCH_BACKENDS`` order. The next backend is used
+    when the previous one raises, returns zero usable results, or is challenged
+    by the upstream provider (e.g. an HTTP 202 bot-challenge surfaced as
+    "No results found"). A backend is accepted only when it returns at least one
+    result carrying the expected ``title``/``href``/``body`` fields. Results are
+    never fabricated, synthesized, or substituted.
 
     Args:
         query: Search query.
         max_results: Maximum number of results to return.
-        timeout: Absolute wall-clock ceiling for the search, in seconds.
+        timeout: Absolute wall-clock ceiling for the whole search, in seconds.
 
     Returns:
         List of result dicts ``{"title", "href", "body"}`` (may be empty).
@@ -417,15 +465,39 @@ def search_web(
         return []
 
     results: list[dict[str, str]] = []
-    exc_holder: list[BaseException] = []
+    last_err: list[BaseException] = []
 
     def _run() -> None:
         try:
-            with DDGS() as ddgs:
-                for r in ddgs.text(query, max_results=max_results):
-                    results.append(r)
-        except Exception as e:  # noqa: BLE001 - surface in caller via holder
-            exc_holder.append(e)
+            with DDGS() as ddgs_client:
+                for backend in _SEARCH_BACKENDS:
+                    try:
+                        raw = ddgs_client.text(query, backend=backend, max_results=max_results)
+                    except Exception as exc:  # noqa: BLE001 - try next backend
+                        logger.warning(
+                            "Web search backend %r failed for query=%r: %s",
+                            backend,
+                            query,
+                            exc,
+                        )
+                        continue
+                    valid = _validate_search_results(raw)
+                    if valid:
+                        logger.info(
+                            "Web search backend %r returned %d result(s) for query=%r",
+                            backend,
+                            len(valid),
+                            query,
+                        )
+                        results.extend(valid)
+                        return
+                    logger.warning(
+                        "Web search backend %r returned no usable results for query=%r",
+                        backend,
+                        query,
+                    )
+        except Exception as exc:  # noqa: BLE001 - surface in caller via holder
+            last_err.append(exc)
 
     worker = threading.Thread(target=_run, name="ddgs-search", daemon=True)
     worker.start()
@@ -436,6 +508,6 @@ def search_web(
         # do not wait for it. Return whatever we have so far.
         logger.warning("Web search timed out after %.1fs for query=%r", timeout, query)
         return list(results)
-    if exc_holder:
-        logger.warning("Web search error for query=%r: %s", query, exc_holder[0])
+    if not results and last_err:
+        logger.warning("Web search error for query=%r: %s", query, last_err[0])
     return list(results)
