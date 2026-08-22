@@ -175,9 +175,60 @@ class LLMResearchPlanSynthesizer(PlanSynthesizer):
     never invents unsupported actions.
     """
 
-    def __init__(self, config: Optional[JarvisConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[JarvisConfig] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+    ) -> None:
         self.config = config or JarvisConfig()
         self._llm_provider: Optional[LLMProvider] = None
+        # Exact registered tool IDs, surfaced verbatim to the model so it must
+        # emit an exact ID (e.g. "calculator"), never a display name or synonym
+        # (e.g. "Online Calculator"). Validation still rejects anything not in
+        # this list — this only improves the model's adherence.
+        if tool_registry is not None:
+            self._tool_ids = list(tool_registry.tool_names())
+        else:
+            try:
+                self._tool_ids = list(ToolRegistry(self.config).tool_names())
+            except Exception:  # pragma: no cover - defensive
+                self._tool_ids = []
+
+    def _tool_directive(self) -> str:
+        """Emit an explicit, enumerable list of the EXACT registered tool IDs.
+
+        The model is told these are the ONLY valid values for a step's 'tool'
+        field. This is the lowest-risk adherence fix: we surface the canonical
+        IDs the validator already enforces, and forbid display names/synonyms.
+        No fuzzy matching, no aliases, no weakening of validation.
+        """
+        if not self._tool_ids:
+            return ""
+        listed = "\n".join(f"  - {tid}" for tid in self._tool_ids)
+        return (
+            "ALLOWED TOOL IDS (use EXACTLY one of these as the 'tool' value; "
+            "do not paraphrase):\n"
+            f"{listed}\n\n"
+        )
+
+    def _tool_fewshot(self) -> str:
+        """Concise few-shot examples of the REQUIRED 'tool' field format.
+
+        Shows the model a correct example (exact registry ID) and an incorrect
+        one (a free-form display name) so it learns the value must be the
+        exact registered ID, not a human-readable label. Pure prompt guidance
+        only — validation still rejects anything not in the registry, so this
+        adds no fuzzy matching, aliases, or normalization.
+        """
+        return (
+            "EXAMPLES of the 'tool' field (value MUST be an exact registered "
+            "ID from the list above):\n"
+            '  CORRECT:   {"tool": "calculator"}\n'
+            '  INCORRECT: {"tool": "Online Calculator"}\n'
+            '  INCORRECT: {"tool": "Calculator Tool"}\n'
+            '  INCORRECT: {"tool": "math calculator"}\n'
+            "Only the CORRECT form is accepted; any other wording is rejected.\n\n"
+        )
 
     def _get_llm(self) -> Optional[LLMProvider]:
         if self._llm_provider is None:
@@ -216,7 +267,7 @@ class LLMResearchPlanSynthesizer(PlanSynthesizer):
             "    {\n"
             '      "step_id": "s1",\n'
             '      "description": "<what to do>",\n'
-            '      "tool": "<a registered tool name, e.g. web_search, web_fetch, filesystem, calculator>",\n'
+            '      "tool": "<the EXACT registered tool ID from the allowed list below>",\n'
             '      "action": "<optional sub-action, e.g. filesystem:write>",\n'
             '      "parameters": {"key": "value"},\n'
             '      "dependencies": ["<step_id this depends on, or empty>"],\n'
@@ -227,10 +278,15 @@ class LLMResearchPlanSynthesizer(PlanSynthesizer):
             "    }\n"
             "  ]\n"
             "}\n\n"
-            "Rules: every step's 'tool' MUST be a real registered tool. Do NOT invent "
-            "tools or actions. Do NOT include steps that execute consequential changes "
-            "unless the research clearly supports them. Dependencies must reference "
-            "step_ids defined in the same plan."
+            + self._tool_directive()
+            + self._tool_fewshot()
+            + "Rules: every step's 'tool' MUST be the EXACT registered tool ID, copied "
+            "verbatim from the allowed list above — never a display name, description, "
+            "synonym, or natural-language label. For example, use \"calculator\", not "
+            "\"Online Calculator\" or \"Calculator Tool\". Do NOT invent tools or "
+            "actions. Do NOT include steps that execute consequential changes unless the "
+            "research clearly supports them. Dependencies must reference step_ids defined "
+            "in the same plan."
         )
 
         llm = self._get_llm()
@@ -324,7 +380,9 @@ class ResearchPlanner:
         self.config = config or JarvisConfig()
         self.tool_registry = tool_registry or ToolRegistry(self.config)
         self.permission_manager = permission_manager or PermissionManager()
-        self.synthesizer = synthesizer or LLMResearchPlanSynthesizer(self.config)
+        self.synthesizer = synthesizer or LLMResearchPlanSynthesizer(
+            self.config, tool_registry=self.tool_registry
+        )
         self.proposal_manager = proposal_manager or ProposalManager()
 
     # ------------------------------------------------------------------ public

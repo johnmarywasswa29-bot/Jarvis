@@ -26,6 +26,8 @@ from research.pipeline import (
     ResearchFindings,
     ResearchSource,
     ResearchStep,
+    ResearchSynthesizer,
+    ResearchSynthesisResult,
     run_research,
 )
 from research.fetcher import FetchResult
@@ -239,7 +241,7 @@ class TestResearchPipeline:
             mock_extract.return_value = ExtractionResult(success=True, text="Content", title="T", method="trafilatura")
             pipeline = ResearchPipeline(config=self.config, limits=limits)
             result = pipeline.research("Test query")
-            assert len(result.research_steps) >= 5
+            assert len(result.research_steps) >= 4  # Phase S: removed the separate gap-classification step (folded into synthesize)
 
     def test_max_fetches_enforcement(self):
         limits = ResearchLimits(max_fetches=2)
@@ -457,7 +459,7 @@ class TestResearchPipeline:
             mock_extract.return_value = ExtractionResult(success=True, text="X" * 5000, title="T", method="trafilatura")
             pipeline = ResearchPipeline(config=self.config, limits=limits)
             result = pipeline.research("Test query")
-            assert len(result.research_steps) >= 5
+            assert len(result.research_steps) >= 4  # Phase S: removed the separate gap-classification step (folded into synthesize)
             fetched = [s for s in result.sources if s.fetch_status == "success"]
             assert len(fetched) <= limits.max_fetches
 
@@ -616,5 +618,147 @@ class TestResearchPipelineNetwork:
         )
         result = pipeline.research("What is the capital of France?")
         assert result is not None
+
+
+# =============================================================================
+# Phase S — research-pipeline call-count optimization (Option A)
+# =============================================================================
+@pytest.mark.offline
+class TestPhaseSResearchCallOptimization:
+    """Phase S: skip the pre-synthesis identify_gaps() LLM call.
+
+    The final synthesize() already emits REMAINING_GAPS, which drives the
+    iterative loop. These tests pin that behavior with a deterministic fake
+    synthesizer (no real LLM / network).
+    """
+
+    def _fake_synth(self, gaps_after_synth):
+        """Build a fake synthesizer recording identify_gaps/synthesize calls.
+
+        The FIRST synthesis reports ``gaps_after_synth`` (simulating the
+        model surfacing a REMAINING_GAP); any subsequent synthesis reports
+        them resolved ([]) — i.e. additional research closed the gap.
+        """
+        calls = {"identify_gaps": 0, "synthesize": 0}
+
+        class _FakeSynth(ResearchSynthesizer):
+            def identify_gaps(self, question, sources):
+                calls["identify_gaps"] += 1
+                return []
+
+            def synthesize(self, question, sources, citations):
+                calls["synthesize"] += 1
+                gaps = list(gaps_after_synth) if calls["synthesize"] == 1 else []
+                return ResearchSynthesisResult(
+                    synthesis=f"Synthesis for: {question}",
+                    confidence=0.9,
+                    gaps=gaps,
+                )
+
+        synth = _FakeSynth()
+        synth._calls = calls
+        return synth
+
+    def _run(self, gaps_after_synth, search_results, fetch_text="Source text.",
+             limits=None):
+        synth = self._fake_synth(gaps_after_synth)
+
+        # First search call returns the initial results; subsequent calls
+        # (iterative additional_search) return a DISTINCT source so deduplication
+        # allows the loop to progress to re-synthesis.
+        state = {"n": 0}
+        def _search_side_effect(*a, **k):
+            state["n"] += 1
+            if state["n"] == 1:
+                return search_results
+            return [{"title": "Extra", "href": "https://extra.example.com", "body": "extra"}]
+
+        with patch("research.pipeline.search_web", side_effect=_search_side_effect), \
+                patch("research.pipeline.fetch_url") as mf, \
+                patch("research.pipeline.extract_content") as me:
+            mf.return_value = FetchResult(
+                success=True, url="No", final_url="https://example.com",
+                status_code=200,
+                content="<html><body><main>Source text.</main></body></html>",
+                content_type="text/html", metadata={"title": "Example"},
+            )
+            me.return_value = ExtractionResult(
+                success=True, text=fetch_text, title="Example", metadata={}, method="trafilatura")
+            pipe = ResearchPipeline(synthesizer=synth, limits=limits)
+            result = pipe.research("Calculate 127 x 43 and tell me the result.")
+        return result, synth
+
+    # ---- A. SIMPLE PATH: no initial identify_gaps; synthesize runs; planner gets it ----
+    def test_simple_path_skips_initial_gap_call(self):
+        result, synth = self._run(
+            gaps_after_synth=[],  # synthesis reports NONE -> no further research
+            search_results=[{"title": "Calc", "href": "https://example.com", "body": "calc"}],
+        )
+        assert synth._calls["identify_gaps"] == 0   # THE optimization
+        assert synth._calls["synthesize"] == 1       # synthesize still runs once
+        assert result.synthesis and "Calculate 127 x 43" in result.synthesis
+        assert result.gaps == []                      # no gaps -> planner gets clean synthesis
+
+    # ---- B. REAL GAP PATH: synthesis reports gaps -> additional research + re-synth ----
+    def test_real_gap_path_triggers_additional_research(self):
+        # Generous limits so the iterative loop is permitted to run when a
+        # genuine gap is reported (default limits block it, mirroring real
+        # bounded research; the ABILITY to iterate must remain).
+        limits = ResearchLimits(max_steps=12, max_searches=5, max_fetches=10, overall_timeout_s=60.0)
+        result, synth = self._run(
+            gaps_after_synth=["Need independent verification of the figure."],
+            search_results=[{"title": "Calc", "href": "https://example.com", "body": "calc"}],
+            limits=limits,
+        )
+        # Initial synthesize reported a gap -> iterative round re-synthesizes.
+        # identify_gaps must STILL never be called (Option A removes it entirely).
+        assert synth._calls["identify_gaps"] == 0
+        # synthesize ran at least twice (initial + re-synthesis after the round).
+        assert synth._calls["synthesize"] >= 2
+        # Additional research was performed (search step added beyond initial).
+        actions = [s.action for s in result.research_steps]
+        assert "additional_search" in actions
+        # Final gaps resolved (re-synthesis cleared them).
+        assert result.gaps == []
+
+    # ---- C. NO-SOURCE / FAILED-RESEARCH PATH: safe-fail preserved ----
+    def test_no_source_path_safe_fails(self):
+        synth = self._fake_synth([])
+        with patch("research.fetcher.search_web", return_value=[]):
+            pipe = ResearchPipeline(synthesizer=synth)
+            result = pipe.research("Calculate 127 x 43 and tell me the result.")
+        # No crash; synthesis reflects no usable sources; safe-fail preserved.
+        assert result is not None
+        assert "No sources" in result.synthesis or result.synthesis
+        # identify_gaps still never called (and with no sources synthesize
+        # falls back without an LLM call in this mocked setup).
+        assert synth._calls["identify_gaps"] == 0
+
+    # ---- D. REGRESSION: multi-source still yields a synthesis with citations ----
+    def test_multi_source_regression(self):
+        result, synth = self._run(
+            gaps_after_synth=[],
+            search_results=[
+                {"title": "A", "href": "https://a.com", "body": "a"},
+                {"title": "B", "href": "https://b.com", "body": "b"},
+            ],
+            fetch_text="Paris is the capital of France.",
+        )
+        successful = [s for s in result.sources if s.fetch_status == "success"]
+        assert len(successful) >= 1
+        assert result.synthesis and "Calculate 127 x 43" in result.synthesis
+        assert synth._calls["identify_gaps"] == 0  # regression: still skipped
+        assert synth._calls["synthesize"] == 1
+
+    # ---- E. CALL COUNT: pipeline LLM calls 2 -> 1 on the simple path ----
+    def test_pipeline_llm_call_count_is_one_on_simple_path(self):
+        result, synth = self._run(
+            gaps_after_synth=[],
+            search_results=[{"title": "Calc", "href": "https://example.com", "body": "calc"}],
+        )
+        # research-pipeline LLM calls reduced from 2 (gap+synth) to 1 (synth only).
+        assert synth._calls["identify_gaps"] == 0
+        assert synth._calls["synthesize"] == 1
+        # (planner adds its own 1 call downstream => total 3 -> 2)
         assert result.research_id
         assert result.synthesis

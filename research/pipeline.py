@@ -454,13 +454,20 @@ class ResearchPipeline:
         findings = ResearchFindings(query=query, research_id=str(uuid.uuid4())[:8])
 
         try:
-            # --- Initial round: search -> fetch -> extract -> identify gaps ---
+            # --- Initial round: search -> fetch -> extract -> synthesize ---
+            # Phase S (Option A, safest): skip the explicit pre-synthesis
+            # identify_gaps() LLM call. synthesize() already emits
+            # REMAINING_GAPS, which we inspect to decide whether additional
+            # research is needed. This removes one Ollama call on the common
+            # path while preserving the ability to run iterative research when
+            # genuine gaps remain (the loop below re-synthesizes with the
+            # larger evidence base and re-checks REMAINING_GAPS).
             findings = self._step_search(query, findings, active_limits)
             findings = self._step_fetch(findings, active_limits)
             findings = self._step_extract(findings, active_limits)
-            findings = self._step_identify_gaps(findings, active_limits)
+            findings = self._step_synthesize(findings, active_limits)
 
-            # --- Iterative rounds: gap -> additional search -> fetch -> extract -> reassess ---
+            # --- Iterative rounds: synthesis gaps -> additional research -> re-synthesize ---
             round_no = 1
             previous_source_count = len(findings.sources)
             searched_queries: set[str] = {query.strip().lower()}
@@ -479,8 +486,9 @@ class ResearchPipeline:
                 findings = self._step_fetch(findings, active_limits)
                 findings = self._step_extract(findings, active_limits)
 
-                # Re-assess gaps with the now-larger evidence base.
-                findings = self._step_identify_gaps(findings, active_limits)
+                # Re-synthesize with the larger evidence base; the new
+                # REMAINING_GAPS decide whether another round is warranted.
+                findings = self._step_synthesize(findings, active_limits)
 
                 round_no += 1
                 new_sources = len(findings.sources) - before_sources
@@ -488,9 +496,6 @@ class ResearchPipeline:
                     # No useful new sources were discovered this round; stop to
                     # avoid an infinite loop over the same (failing) queries.
                     break
-
-            # --- Final synthesis ---
-            findings = self._step_synthesize(findings, active_limits)
 
         except Exception as e:
             logger.exception("Research pipeline error for query: %s", query)
@@ -888,9 +893,11 @@ class ResearchPipeline:
 
         findings.synthesis = result.synthesis
         findings.confidence = result.confidence
-        # Preserve remaining gaps; only override when the synthesizer returned new ones.
-        if result.gaps:
-            findings.gaps = result.gaps
+        # synthesize() is authoritative for REMAINING_GAPS: adopt its gap list
+        # verbatim (empty when the synthesis reports none). For Phase S this is
+        # required so an iterative re-synthesis properly CLEARS gaps that
+        # additional research resolved (the loop is driven by synthesis gaps).
+        findings.gaps = result.gaps
         findings.findings = [{
             "claim": "See synthesis for detailed findings",
             "sources": citations,
