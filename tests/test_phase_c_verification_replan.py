@@ -266,3 +266,43 @@ def test_integration_passing_test_then_no_replan():
     replan = Replanner().replan("run the tests", prop, audit, ver, allowed_tools=reg.tool_names())
     assert replan.status == ReplanStatus.INCONCLUSIVE  # already achieved
     assert replan.proposal is None
+
+
+# --------------------------------------------------------------------------- #
+# PHASE V: calculator verification gap
+# --------------------------------------------------------------------------- #
+def test_verifier_calculator_correct_result_is_success():
+    # Test #1: expression 127 * 43 with output 5461 -> SUCCESS.
+    a = _audit("success", [_step("calculator", StepStatus.EXECUTED.value,
+                                 "5461", params={"expression": "127 * 43"})])
+    r = Verifier().verify("Calculate 127 x 43", a)
+    assert r.status == VerificationStatus.SUCCESS
+    assert r.success
+
+
+def test_verifier_calculator_incorrect_result_is_not_success():
+    # Test #2: expression 127 * 43 with WRONG output 1234 -> NOT SUCCESS.
+    a = _audit("success", [_step("calculator", StepStatus.EXECUTED.value,
+                                 "1234", params={"expression": "127 * 43"})])
+    r = Verifier().verify("Calculate 127 x 43", a)
+    assert r.status != VerificationStatus.SUCCESS
+    assert r.status == VerificationStatus.FAILURE
+
+
+def test_verifier_calculator_failed_step_is_not_success():
+    # Test #3: calculator step that failed (success=False / error) -> NOT SUCCESS.
+    a = _audit("failed", [_step("calculator", StepStatus.FAILED.value,
+                                error="Missing expression",
+                                params={"expression": "127 * 43"})])
+    r = Verifier().verify("Calculate 127 x 43", a)
+    assert r.status != VerificationStatus.SUCCESS
+    assert r.status == VerificationStatus.FAILURE
+    assert r.failed_steps
+
+
+def test_verifier_calculator_without_expression_stays_generic():
+    # Existing generic behavior preserved: a calculator step with no
+    # 'expression' parameter must NOT be specially verified (falls through).
+    a = _audit("success", [_step("calculator", StepStatus.EXECUTED.value, "= 4")])
+    r = Verifier().verify("do a thing", a)
+    assert r.status == VerificationStatus.INCONCLUSIVE

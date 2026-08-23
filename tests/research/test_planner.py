@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pytest
 
+import json
+
 from research.pipeline import ResearchFindings, ResearchSource
 from research.planner import (
     LLMResearchPlanSynthesizer,
@@ -407,4 +409,95 @@ class TestPlannerCallCountAndSafety:
         )
         wf.run("Calculate 127 x 43 and tell me the result.", research=False,
                findings=_findings_with_sources())
-        assert captured and captured[0] == ["calculator"]
+
+
+# ---------------------------------------------------------------------------
+# Phase U: calculator parameter-derivation (narrowly scoped fix)
+# ---------------------------------------------------------------------------
+@pytest.mark.offline
+class TestCalculatorParameterDerivation:
+    """Deterministic tests for _derive_step_parameters / plan().
+
+    The planner must backfill a calculator step's missing 'expression' from the
+    step's OWN description using the calculator's own accepted-syntax check.
+    No LLM, no invented values, no fuzzy tool matching.
+    """
+
+    @staticmethod
+    def _plan_json(description: str, parameters: str) -> str:
+        return (
+            '{"objective": "Calculate 127 x 43", "rationale": "r",'
+            ' "steps": [{"step_id": "s1", "description": %s, "tool": "calculator",'
+            ' "action": "", "parameters": %s, "dependencies": [],'
+            ' "expected_result": "5461", "risk_level": "low",'
+            ' "confirmation_requirement": false, "rationale": "x"}]}'
+            % (json.dumps(description), parameters)
+        )
+
+    def _plan_via_planner(self, description: str, parameters: str):
+        planner = ResearchPlanner(
+            synthesizer=_FakeSynthesizer(self._plan_json(description, parameters))
+        )
+        return planner.plan(_findings_with_sources())
+
+    def test_empty_params_derive_expression_from_description(self):
+        # Test #1: calculator step with empty parameters derives the expression.
+        plan = self._plan_via_planner(
+            "Use a calculator to compute 127 * 43", "{}"
+        )
+        assert plan.status.value == "validated"
+        assert plan.steps[0].parameters == {"expression": "127 * 43"}
+
+    def test_existing_expression_unchanged(self):
+        # Test #2: a step that already supplies the expression is untouched.
+        plan = self._plan_via_planner(
+            "Use a calculator to compute 127 * 43", '{"expression": "127 * 43"}'
+        )
+        assert plan.status.value == "validated"
+        assert plan.steps[0].parameters == {"expression": "127 * 43"}
+
+    def test_no_extractable_expression_leaves_params_unchanged(self):
+        # Test #3: no safely extractable math expression -> do NOT invent one.
+        plan = self._plan_via_planner(
+            "Use a calculator for the grand total of the report", "{}"
+        )
+        assert plan.status.value == "validated"
+        assert plan.steps[0].parameters == {}  # unchanged; safe failure remains
+
+    def test_derived_proposal_executes_real_calculator(self):
+        # Test #4: drive the derived proposal through the REAL CalculatorTool.
+        planner = ResearchPlanner(
+            synthesizer=_FakeSynthesizer(
+                self._plan_json("Use a calculator to compute 127 * 43", "{}")
+            )
+        )
+        plan = planner.plan(_findings_with_sources())
+        proposal = planner.to_proposal(plan)
+
+        from modules.tools import ToolRegistry, PermissionManager
+        from proposal.executor import ProposalExecutor
+        from proposal.validator import ProposalValidator
+
+        reg = ToolRegistry(config=__import__("modules.config", fromlist=["JarvisConfig"]).JarvisConfig())
+        pexec = ProposalExecutor(
+            tool_registry=reg,
+            permission_manager=PermissionManager(),
+            proposal_validator=ProposalValidator(),
+        )
+        audit = pexec.execute(
+            proposal, confirm_fn=lambda *a, **k: True,
+            research_findings=_findings_with_sources(), plan=plan,
+        )
+        step = audit.executed_steps[0]
+        assert step.tool == "calculator"
+        assert step.status == "executed"
+        assert "5461" in step.output
+
+    def test_unknown_tool_and_tool_id_validation_unchanged(self):
+        # Test #5: unknown tools and exact tool-ID validation still enforced.
+        planner = ResearchPlanner(
+            synthesizer=_FakeSynthesizer(self._plan_json("d", "{}").replace('"calculator"', '"Online Calculator"'))
+        )
+        plan = planner.plan(_findings_with_sources())
+        assert plan.status.value == "rejected"
+        assert any("unknown/unsupported tool" in e for e in plan.validation_errors)

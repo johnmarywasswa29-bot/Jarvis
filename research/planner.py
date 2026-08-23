@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
@@ -34,7 +35,7 @@ from typing import Any, Optional
 from modules.config import JarvisConfig
 from modules.llm_providers import get_llm_provider, LLMProvider
 from modules.permission_manager import PermissionManager
-from modules.tools import ToolRegistry
+from modules.tools import ToolRegistry, CalculatorTool
 from proposal.manager import ProposalManager
 from proposal.state import Proposal, ProposalRiskLevel, ProposedAction, SourceReference
 from research.pipeline import ResearchFindings
@@ -399,12 +400,70 @@ class ResearchPlanner:
         except Exception as e:  # synthesizer threw something unexpected
             raise PlanValidationError(f"Plan synthesis failed: {e}") from e
 
+        # Derive any tool-specific parameters the synthesizer omitted (e.g. a
+        # calculator step whose 'expression' was left empty). This is strictly
+        # scoped and deterministic: it reads the step's OWN description and uses
+        # the calculator's own accepted-syntax check, never an LLM, never an
+        # invented value, never fuzzy matching. If nothing safe is derivable the
+        # parameters are left unchanged so the existing safe failure remains.
+        self._derive_step_parameters(plan)
+
         # Attach research citations as the evidence provenance for the plan.
         # The planner is authoritative for where a plan's evidence comes from,
         # so this holds regardless of what the synthesizer returned.
         plan.sources = findings.get_citations()
         self._enrich_and_validate(plan)
         return plan
+
+    # ---------------------------------------------------- parameter derivation
+    def _derive_step_parameters(self, plan: ResearchPlan) -> None:
+        """Backfill tool-specific parameters from a step's own description.
+
+        Currently handles only the SAFE calculator tool: when a calculator step
+        is missing a usable 'expression', the mathematical expression is
+        extracted from its description and validated against the calculator's
+        own accepted-syntax check before being set. Nothing is invented; if no
+        safe expression is found the step's parameters are left unchanged.
+        """
+        expr_re = re.compile(r"[0-9\s\+\-\*/\.\(\)\%\^]+")
+        for step in plan.steps:
+            if step.tool != "calculator":
+                continue
+            existing = (step.parameters or {}).get("expression")
+            if existing and str(existing).strip():
+                continue  # already has a usable expression; do not override
+            candidate = self._extract_calculator_expression(step.description)
+            if candidate is None:
+                continue  # leave unchanged -> existing safe failure behavior
+            step.parameters = dict(step.parameters or {})
+            step.parameters["expression"] = candidate
+
+    @staticmethod
+    def _extract_calculator_expression(description: str) -> Optional[str]:
+        """Return a calculator-safe math expression from text, else None.
+
+        Uses the same character class the calculator accepts and confirms the
+        result with the calculator's own ``can_handle`` check. No LLM, no
+        invention: if the text contains no safe expression, returns None.
+        """
+        if not description:
+            return None
+        expr_re = re.compile(r"[0-9\s\+\-\*/\.\(\)\%\^]+")
+        best: Optional[str] = None
+        for match in expr_re.findall(description):
+            cand = match.strip().replace("^", "**")
+            if len(cand) < 3:
+                continue
+            if best is None or len(cand) > len(best):
+                best = cand
+        if best is None:
+            return None
+        try:
+            if CalculatorTool().can_handle(best):
+                return best
+        except Exception:
+            return None
+        return None
 
     def to_proposal(
         self, plan: ResearchPlan, *, requires_confirmation: bool | None = None

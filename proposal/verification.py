@@ -27,6 +27,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from proposal.executor import ExecutionAudit, ExecutedStep, StepStatus
+from modules.tools import CalculatorTool
 
 
 def _first_int(pattern: str, text: str) -> int:
@@ -122,6 +123,42 @@ class Verifier:
             self._publish("verification.completed", result=result)
             return result
 
+        # 1b) Calculator computation: verify the executed result matches the
+        # requested expression. This is scoped strictly to calculator steps that
+        # carry an explicit 'expression' parameter; success requires the tool's
+        # OWN safe evaluator (CalculatorTool, no LLM) to recompute the same
+        # value the step reported. Arbitrary numeric output is NEVER treated as
+        # success. When no verifiable calculator step is present, behavior falls
+        # through to the generic/objective-specific checks below.
+        calc_steps = [
+            s for s in steps
+            if s.tool == "calculator"
+            and s.status == StepStatus.EXECUTED.value
+            and (s.parameters or {}).get("expression")
+        ]
+        if calc_steps:
+            outcome, msg = self._check_calculator(calc_steps, observations)
+            evidence.append(msg)
+            if outcome == "success":
+                status = VerificationStatus.SUCCESS
+                diagnostics = f"objective achieved: {msg}"
+            elif outcome == "failure":
+                status = VerificationStatus.FAILURE
+                diagnostics = f"objective not achieved: {msg}"
+            else:  # inconclusive -- could not confirm either way
+                status = VerificationStatus.INCONCLUSIVE
+                diagnostics = f"could not confirm objective: {msg}"
+            result = VerificationResult(
+                status=status,
+                objective=objective,
+                evidence=evidence,
+                failed_steps=failed,
+                diagnostics=diagnostics,
+                iteration=iteration,
+            )
+            self._publish("verification.completed", result=result)
+            return result
+
         # 2) Objective-specific evidence checks (never trust final_status alone).
         if "test" in obj:
             outcome, msg = self._check_test(steps, observations)
@@ -155,6 +192,43 @@ class Verifier:
         )
         self._publish("verification.completed", result=result)
         return result
+
+    # ------------------------------------------------------------------ #
+    def _check_calculator(
+        self, steps: list[ExecutedStep], obs: dict
+    ) -> tuple[str, str]:
+        """Verify calculator steps against their requested expression.
+
+        Success requires the calculator tool's OWN safe evaluator to recompute
+        the same value the step reported for the requested ``expression``. This
+        is deterministic (no LLM) and never treats arbitrary numeric output as
+        success: the output must equal the recomputed value of the exact
+        expression carried in the step's parameters.
+        """
+        for s in steps:
+            expr = (s.parameters or {}).get("expression", "").strip()
+            if not expr:
+                return "inconclusive", "calculator step missing expression"
+            # Recompute using the calculator's existing safe math evaluator.
+            try:
+                recomputed = CalculatorTool().execute(expression=expr)
+            except Exception as exc:  # pragma: no cover - defensive
+                return "inconclusive", f"could not recompute {expr!r}: {exc}"
+            if not recomputed.success:
+                return "failure", (
+                    f"expression {expr!r} could not be evaluated: "
+                    f"{recomputed.error or 'unknown error'}"
+                )
+            reported = (s.output or "").strip()
+            expected = (recomputed.output or "").strip()
+            if not reported:
+                return "failure", "calculator produced no output"
+            if reported == expected:
+                return "success", f"calculator computed {expr} = {expected}"
+            return "failure", (
+                f"calculator output {reported!r} != {expr} = {expected}"
+            )
+        return "inconclusive", "no verifiable calculator computation observed"
 
     # ------------------------------------------------------------------ #
     def _check_test(self, steps: list[ExecutedStep], obs: dict) -> tuple[str, str]:
