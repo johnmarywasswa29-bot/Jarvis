@@ -99,8 +99,9 @@ class JarvisMemoryV2:
 
     def get_recent_context(self, max_messages: int = 20, max_chars: int = 4000) -> str:
         with self._lock:
+            self._flush_locked()
             rows = self._conn.execute(
-                "SELECT role, content FROM messages ORDER BY ts DESC LIMIT ?",
+                "SELECT role, content FROM messages ORDER BY ts DESC, id DESC LIMIT ?",
                 (max_messages,),
             ).fetchall()
         lines = [f"{r[0].upper()}: {r[1]}" for r in reversed(rows)]

@@ -7,6 +7,7 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 os.chdir(REPO)
@@ -307,12 +308,12 @@ class TestTaskQueueLifecycle(unittest.TestCase):
     def test_tick_promotes_waiting(self):
         q, path = self._queue()
         try:
-            past = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 10))
-            t = Task("x", scheduled_time=past)
-            q.enqueue(t)
-            self.assertEqual(t.status, TaskStatus.WAITING)
-            q.tick()
-            self.assertEqual(q._require("x").status, TaskStatus.READY)
+            with patch.object(TaskQueue, "_now", return_value="2026-01-01T00:00:00"):
+                t = Task("x", scheduled_time="2025-12-31T23:59:50")
+                q.enqueue(t)
+                self.assertEqual(t.status, TaskStatus.WAITING)
+                q.tick()
+                self.assertEqual(q._require("x").status, TaskStatus.READY)
         finally:
             try:
                 path.unlink(missing_ok=True)

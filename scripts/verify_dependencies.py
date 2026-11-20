@@ -48,8 +48,7 @@ REQUIRED_DEPENDENCIES: tuple[Dependency, ...] = (
     Dependency("requests", "requests>=2.31", "HTTP client for integrations"),
     Dependency("bs4", "beautifulsoup4>=4.12", "HTML/web content parsing"),
     Dependency("dotenv", "python-dotenv>=1.0", "Environment variable loading"),
-    Dependency("ddgs", "duckduckgo-search>=6.0", "Web search"),
-    Dependency("duckduckgo_search", "duckduckgo-search>=6.0", "Web search"),
+    Dependency("ddgs", "ddgs>=6.0", "Web search"),
     Dependency("psutil", "psutil>=5.9", "System monitoring"),
 )
 

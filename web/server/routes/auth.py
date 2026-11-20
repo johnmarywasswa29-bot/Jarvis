@@ -4,7 +4,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from web.server.auth import get_current_config_from_request, optional_auth
+from web.server.auth import (
+    get_current_config_from_request,
+    is_auth_required,
+    optional_auth,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -32,9 +36,7 @@ async def auth_status(request: Request):
     config = request.app.state.config
     return AuthStatusResponse(
         auth_enabled=config.web_auth_enabled,
-        auth_required=config.web_auth_enabled and (
-            config.web_auth_required_localhost or config.web_host != "127.0.0.1"
-        ),
+        auth_required=is_auth_required(config),
         token_configured=bool(config.web_auth_token),
     )
 

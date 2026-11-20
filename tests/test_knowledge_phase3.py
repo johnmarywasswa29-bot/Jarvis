@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import sqlite3
 import time
 import unittest
@@ -13,10 +12,8 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
-os.chdir(REPO)
 
 TMP_DIR = REPO / "tests" / "tmp_knowledge"
-TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _clean_dir(path: Path) -> None:

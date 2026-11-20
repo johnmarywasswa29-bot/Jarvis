@@ -1,7 +1,6 @@
 """RAG hardening tests: cover missing retrieval, ranking, memory hook, and edge cases."""
 from __future__ import annotations
 
-import os
 import time
 import unittest
 from pathlib import Path
@@ -10,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 TMP_DIR = REPO / "tests" / "tmp_knowledge"
-TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 from knowledge.chunker import Chunk
 from knowledge.knowledge_storage import KnowledgeStorage

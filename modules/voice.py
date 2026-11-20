@@ -35,14 +35,6 @@ if not _HAS_PYAUDIO:
     logger.warning("PyAudio not available; microphone input disabled.")
 
 try:
-    import pvporcupine
-    import pvrecorder
-    _HAS_PORCUPINE = True
-except Exception as exc:  # pragma: no cover
-    _HAS_PORCUPINE = False
-    logger.warning("pvporcupine not available: %s", exc)
-
-try:
     import pyttsx3
     _HAS_TTS = True
 except Exception:

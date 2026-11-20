@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -37,7 +38,7 @@ class GoalManager:
         self._load()
 
     def create(self, title: str, steps: Optional[list[str]] = None, priority: int = 5, goal_id: Optional[str] = None, metadata: Optional[dict[str, Any]] = None) -> Goal:
-        gid = goal_id or str(int(time.time() * 1000))
+        gid = goal_id or f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
         goal = Goal(id=gid, title=title, steps=list(steps or []), priority=priority, metadata=dict(metadata or {}))
         with self._lock:
             self._goals[gid] = goal

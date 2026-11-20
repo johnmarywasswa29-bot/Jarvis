@@ -81,7 +81,7 @@ class SessionStore:
 
     def workspaces(self) -> list[str]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT name FROM workspaces ORDER BY last_opened_at DESC").fetchall()
+            rows = conn.execute("SELECT name FROM workspaces ORDER BY last_opened_at DESC, rowid DESC").fetchall()
         return [r[0] for r in rows]
 
     def create_workspace(self, name: str, display_name: Optional[str] = None) -> None:

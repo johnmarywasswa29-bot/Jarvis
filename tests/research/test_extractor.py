@@ -32,7 +32,7 @@ class TestExtractor:
         assert "Article Title" in result.text
         assert "main content" in result.text
         assert "Second paragraph" in result.text
-        assert result.title == "Article Title"
+        assert result.title == "Test Article"
         assert result.method in ("trafilatura", "bs4")
     
     def test_boilerplate_removal(self):
@@ -43,7 +43,7 @@ class TestExtractor:
         <body>
             <nav>Navigation</nav>
             <header>Header</header>
-            <main><p>Main content here.</p></main>
+            <main><p>Main content here. This paragraph is deliberately long enough to satisfy the extractor's minimum one hundred character body requirement and keep the article extractable.</p></main>
             <footer>Footer</footer>
             <script>alert('ads');</script>
             <aside>Sidebar</aside>
@@ -69,7 +69,7 @@ class TestExtractor:
             <meta property="og:title" content="OG Title">
             <meta property="og:description" content="OG Description">
         </head>
-        <body><main><p>Content</p></main></body>
+        <body><main><p>Content. This body is deliberately expanded past one hundred characters so the extractor accepts the page and exposes its title metadata for assertions.</p></main></body>
         </html>
         """
         result = extract_content(html, url="https://example.com")
@@ -106,7 +106,7 @@ class TestExtractor:
     
     def test_method_is_identified(self):
         """Test that extraction method is identified."""
-        html = "<html><head><title>Test</title></head><body><main><p>Content with enough text to be extractable by the algorithm.</p></main></body></html>"
+        html = "<html><head><title>Test</title></head><body><main><p>Content with enough text to be extractable by the algorithm, extended beyond the one hundred character minimum enforced by the extractor so this test exercises a successful extraction.</p></main></body></html>"
         result = extract_content(html)
         assert result.success is True
         assert result.method in ("trafilatura", "bs4", "none")

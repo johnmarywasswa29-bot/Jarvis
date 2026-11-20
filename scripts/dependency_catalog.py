@@ -80,7 +80,6 @@ REQUIRED_DEPS: Tuple[DependencyMeta, ...] = (
     DependencyMeta("sounddevice", "sounddevice>=0.5.1", "Audio capture"),
     DependencyMeta("soundfile", "soundfile>=0.12.1", "Wave file I/O"),
     DependencyMeta("pvporcupine", "pvporcupine>=3.0.5", "Wake-word detection"),
-    DependencyMeta("pvrecorder", "pvrecorder>=1.2.7", "Audio recorder for wake-word"),
     DependencyMeta("vosk", "vosk>=0.3.45", "Offline speech recognition"),
     DependencyMeta("requests", "requests>=2.31", "HTTP requests"),
     DependencyMeta("bs4", "beautifulsoup4>=4.12", "HTML/web content parsing"),
@@ -88,8 +87,7 @@ REQUIRED_DEPS: Tuple[DependencyMeta, ...] = (
     DependencyMeta("pyttsx3", "pyttsx3>=2.90", "Text-to-speech"),
     DependencyMeta("pyautogui", "pyautogui>=0.9.54", "Desktop automation"),
     DependencyMeta("pygetwindow", "pygetwindow>=0.0.9", "Window enumeration"),
-    DependencyMeta("ddgs", "duckduckgo-search>=6.0", "Web search"),
-    DependencyMeta("duckduckgo_search", "duckduckgo-search>=6.0", "Web search"),
+    DependencyMeta("ddgs", "ddgs>=6.0", "Web search"),
     DependencyMeta("psutil", "psutil>=5.9", "System monitoring"),
 )
 

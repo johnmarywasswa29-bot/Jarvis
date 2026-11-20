@@ -63,8 +63,9 @@ class TestOllamaProvider:
     def test_is_available_returns_false_when_no_client(self):
         config = JarvisConfig()
         provider = OllamaProvider(config)
-        # Without mocked client, should return False
-        assert provider.is_available() is False
+        # A running local Ollama daemon must not change this contract.
+        with patch.object(OllamaProvider, "_get_client", return_value=None):
+            assert provider.is_available() is False
 
     def test_chat_returns_empty_on_no_client(self):
         config = JarvisConfig()
@@ -174,7 +175,8 @@ class TestOllamaRegression:
         config.llm_provider = "ollama"
         provider = OllamaProvider(config)
         assert provider.config is config
-        assert provider.is_available() is False  # No running Ollama
+        with patch.object(OllamaProvider, "_get_client", return_value=None):
+            assert provider.is_available() is False
 
     def test_ollama_chat_structure(self):
         config = JarvisConfig()

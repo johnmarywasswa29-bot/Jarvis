@@ -72,6 +72,15 @@ class JarvisConfig:
     filesystem_enabled: bool = True
     vision_enabled: bool = True
 
+    # Web server / authentication
+    web_enabled: bool = True
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
+    web_auth_enabled: bool = False
+    web_auth_token: str = ""
+    web_auth_required_localhost: bool = False
+    web_auth_require_for_non_localhost: bool = True
+
     # Paths
     downloads: str = str(Path.home() / "Downloads")
     desktop: str = str(Path.home() / "Desktop")

@@ -1,9 +1,9 @@
 """Phase 9B deterministic tests for the research pipeline.
 
 These tests exercise the FULL multi-step research flow
-(search -> fetch -> extract -> identify gaps -> additional search ->
-synthesize) WITHOUT a live LLM or internet, by injecting a deterministic
-``FakeSynthesizer`` into ``ResearchPipeline``.
+(search -> fetch -> extract -> synthesize -> REMAINING_GAPS-driven additional
+search -> re-synthesize) WITHOUT a live LLM or internet, by injecting a
+deterministic ``FakeSynthesizer`` into ``ResearchPipeline``.
 
 Network is mocked at the seam documented in test_pipeline.py:
   * ``research.fetcher.search_web`` is patched so no real DDGS call runs.
@@ -42,13 +42,12 @@ from modules.config import JarvisConfig
 # Deterministic fake synthesizer
 # -----------------------------------------------------------------------------
 class FakeSynthesizer(ResearchSynthesizer):
-    """Returns canned gaps / synthesis so research behavior is deterministic.
+    """Canned synthesis + REMAINING_GAPS for deterministic research.
 
-    ``gaps`` is the list returned by identify_gaps. ``synthesis``,
-    ``confidence``, and ``extra_gaps`` populate the ResearchSynthesisResult.
-    If ``raise_on_identify`` / ``raise_on_synthesize`` are set, the
-    corresponding method raises ``ResearchSynthesisError`` (rate_limited flag
-    chosen by ``rate_limited``) to exercise graceful degradation.
+    Since ce1374c the pipeline drives iterative research from the gaps in
+    ``synthesize()`` output. ``gap_sequence`` is replayed one entry per
+    synthesize call and converges to its final entry; otherwise the fixed
+    ``gaps`` list is returned every time.
     """
 
     def __init__(
@@ -63,10 +62,6 @@ class FakeSynthesizer(ResearchSynthesizer):
         gap_sequence: list[list[str]] | None = None,
     ) -> None:
         self.gaps = gaps if gaps is not None else []
-        # If a gap_sequence is supplied, identify_gaps replays it (one entry per
-        # call) and converges to the final entry; otherwise the fixed ``gaps``
-        # list is returned on every call. This lets tests model multi-round
-        # convergence under the Phase 9C iterative loop.
         self.gap_sequence = gap_sequence
         self._gap_index = 0
         self.synthesis = synthesis
@@ -75,21 +70,11 @@ class FakeSynthesizer(ResearchSynthesizer):
         self.raise_on_identify = raise_on_identify
         self.raise_on_synthesize = raise_on_synthesize
         self.rate_limited = rate_limited
-        self.identify_calls: list[tuple[str, list]] = []
         self.synthesize_calls: list[tuple[str, list, list]] = []
 
     def identify_gaps(self, question: str, sources: list[ResearchSource]) -> list[str]:
-        self.identify_calls.append((question, list(sources)))
-        if self.raise_on_identify:
-            raise ResearchSynthesisError(
-                "provider unavailable during gap analysis",
-                rate_limited=self.rate_limited,
-            )
-        if self.gap_sequence is not None:
-            i = min(self._gap_index, len(self.gap_sequence) - 1)
-            self._gap_index += 1
-            return list(self.gap_sequence[i])
-        return list(self.gaps)
+        # Kept for interface compatibility; the pipeline no longer calls it.
+        return []
 
     def synthesize(self, question, sources, citations) -> ResearchSynthesisResult:
         self.synthesize_calls.append((question, list(sources), list(citations)))
@@ -98,10 +83,16 @@ class FakeSynthesizer(ResearchSynthesizer):
                 "provider rate-limited during synthesis",
                 rate_limited=self.rate_limited,
             )
+        if self.gap_sequence is not None:
+            i = min(self._gap_index, len(self.gap_sequence) - 1)
+            self._gap_index += 1
+            gaps = list(self.gap_sequence[i])
+        else:
+            gaps = list(self.gaps) or list(self.extra_gaps)
         return ResearchSynthesisResult(
             synthesis=self.synthesis,
             confidence=self.confidence,
-            gaps=list(self.extra_gaps),
+            gaps=gaps,
         )
 
 
@@ -162,20 +153,20 @@ class TestMultiStepResearch:
 
         assert result.query == "Best local LLMs in 2026?"
         assert result.research_id
-        # search, fetch, extract, identify_gaps, (gaps -> additional), fetch, extract, synthesize
+        # search, fetch, extract, synthesize, (REMAINING_GAPS -> additional),
+        # fetch, extract, synthesize
         actions = [s.action for s in result.research_steps]
         assert "search" in actions
         assert "fetch" in actions
         assert "extract" in actions
-        assert "identify_gaps" in actions
         assert "additional_search" in actions
         assert "synthesize" in actions
-        # Synthesis executed with the fake's canned output.
+        # Synthesis executed with the fake's canned output and re-ran after the
+        # gap-driven round; the final REMAINING_GAPS list was empty.
         assert "Synthesized" in result.synthesis
         assert abs(result.confidence - 0.9) < 1e-9
-        # Both gap identify and synthesize were invoked.
-        assert fake.identify_calls
-        assert fake.synthesize_calls
+        assert len(fake.synthesize_calls) >= 2
+        assert result.gaps == []
 
     def test_sources_recorded_with_status(self):
         fake = FakeSynthesizer(gaps=[])

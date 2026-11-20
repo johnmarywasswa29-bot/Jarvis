@@ -21,6 +21,7 @@ No self-approval; no ShellTool; no dependency management; no build execution.
 from __future__ import annotations
 
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -295,11 +296,11 @@ class ProjectTestTool(BaseTool):
         root = (self.config.project_root if self.config and getattr(self.config, "project_root", None) else Path.cwd())
         cmd: list[str]
         if framework == "pytest":
-            cmd = ["python", "-m", "pytest", "-q", "--tb=short"]
+            cmd = [sys.executable, "-m", "pytest", "-q", "--tb=short"]
             if target:
                 cmd.append(target)
         else:
-            cmd = ["python", "-m", "unittest"]
+            cmd = [sys.executable, "-m", "unittest"]
             if target:
                 cmd.append(target if "." in target else f"discover -s {target}")
 

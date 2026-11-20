@@ -47,12 +47,11 @@ from modules.config import JarvisConfig
 # Deterministic fakes & mocks
 # -----------------------------------------------------------------------------
 class SeqGapFake(ResearchSynthesizer):
-    """Replays a preset list of gap-sets, one per identify_gaps call.
+    """Replays a preset list of REMAINING_GAPS, one per synthesize call.
 
-    The last entry should be ``[]`` to model convergence. If the pipeline
-    keeps calling identify_gaps beyond the sequence, the final entry is
-    repeated (so a non-converging sequence keeps returning gaps and lets the
-    limit-based stop conditions take over).
+    Since ce1374c the iterative loop is driven by the gaps returned from
+    synthesis. The last entry should be ``[]`` to model convergence; later
+    calls repeat the final entry so limit-based stop conditions still apply.
     """
 
     def __init__(self, gap_sequence: list[list[str]], synthesis: str = "S [Source 1]."):
@@ -60,15 +59,20 @@ class SeqGapFake(ResearchSynthesizer):
         self.synthesis = synthesis
         self.identify_calls = 0
         self.synthesize_calls = 0
+        self._gap_index = 0
 
     def identify_gaps(self, question: str, sources: list[ResearchSource]) -> list[str]:
-        i = min(self.identify_calls, len(self.gap_sequence) - 1)
-        self.identify_calls += 1
-        return list(self.gap_sequence[i])
+        # Kept for interface compatibility; the pipeline no longer calls it.
+        return []
 
     def synthesize(self, question, sources, citations) -> ResearchSynthesisResult:
         self.synthesize_calls += 1
-        return ResearchSynthesisResult(synthesis=self.synthesis, confidence=0.8, gaps=[])
+        i = min(self._gap_index, len(self.gap_sequence) - 1)
+        self._gap_index += 1
+        gaps = list(self.gap_sequence[i])
+        return ResearchSynthesisResult(
+            synthesis=self.synthesis, confidence=0.8, gaps=gaps
+        )
 
 
 class FailIdentifyFake(ResearchSynthesizer):
@@ -132,8 +136,9 @@ class TestMultipleRounds:
 
         rounds = [s for s in result.research_steps if s.action == "additional_search"]
         assert len(rounds) >= 2, "expected at least 2 additional_search rounds"
-        # gap detection ran once per round (initial + each iteration).
-        assert fake.identify_calls >= 3
+        # Synthesis ran once per round (initial + each iteration) and its
+        # REMAINING_GAPS drove the two additional rounds.
+        assert fake.synthesize_calls >= 3
         # New sources were discovered across rounds.
         assert len(result.sources) > 2
         # Converged.

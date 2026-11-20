@@ -2,46 +2,39 @@
 from __future__ import annotations
 
 import importlib
-import os
 import shutil
 import sys
 import threading
-import time
 import unittest
 from pathlib import Path
 
-REPO = Path(r"C:\Users\User NA\Desktop\jarvis")
-os.chdir(REPO)
+REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 
 class RCStress(unittest.TestCase):
     def setUp(self):
-        self.repo = REPO
-        self.data_dir = self.repo / "data" / f"rc_{id(self)}_{threading.get_native_id()}"
+        self.scratch = Path(self.tmp_path)
+        self.data_dir = self.scratch / "data" / f"rc_{id(self)}_{threading.get_native_id()}"
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
-        try:
-            shutil.rmtree(self.data_dir, ignore_errors=True)
-        except Exception:
-            pass
+        shutil.rmtree(self.data_dir, ignore_errors=True)
 
     def _cfg(self):
         from modules.config import JarvisConfig
 
         class C(JarvisConfig):
-            def __init__(self, repo: Path):
-                self.repo = repo
-                self.memory_persist_directory = str(repo / "data" / "rc_mem")
+            def __init__(self, scratch: Path):
+                self.memory_persist_directory = str(scratch / "data" / "rc_mem")
                 Path(self.memory_persist_directory).mkdir(parents=True, exist_ok=True)
 
-        return C(self.repo)
+        return C(self.scratch)
 
     def test_memory_1000_inserts(self):
         from modules.memory_v2 import JarvisMemoryV2
 
-        mem = JarvisMemoryV2(self._cfg())
+        mem = JarvisMemoryV2(self._cfg(), use_chroma=False)
         for i in range(1000):
             mem.add_message("user", f"msg {i}", metadata={"i": i})
         ctx = mem.get_recent_context(50)
@@ -77,7 +70,7 @@ class RCStress(unittest.TestCase):
 
         dirp = self.data_dir / "rc_knowledge"
         dirp.mkdir(parents=True, exist_ok=True)
-        engine = KnowledgeEngine(dirp)
+        engine = KnowledgeEngine(dirp, use_chroma=False)
         for i in range(100):
             p = dirp / f"d{i}.txt"
             p.write_text(f"alpha content {i} " * 10, encoding="utf-8")
@@ -94,14 +87,14 @@ class RCStress(unittest.TestCase):
         seed = base / "seed.txt"
         seed.write_text("alpha content seed", encoding="utf-8")
 
-        eng = KnowledgeEngine(base)
+        eng = KnowledgeEngine(base, use_chroma=False)
         try:
             self.assertIsNotNone(eng.index_file(seed))
             self.assertGreaterEqual(len(eng.search("alpha", k=3)), 1)
         finally:
             eng.close()
 
-        eng2 = KnowledgeEngine(base)
+        eng2 = KnowledgeEngine(base, use_chroma=False)
         try:
             self.assertGreaterEqual(len(eng2.search("alpha", k=3)), 1)
         finally:

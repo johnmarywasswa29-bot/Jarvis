@@ -12,6 +12,7 @@ import ast
 import os as _os
 import sys
 import importlib.util
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -87,8 +88,7 @@ REQUIRED_DEPS: Tuple[DependencyMeta, ...] = (
     DependencyMeta("pyttsx3", "pyttsx3>=2.90", "REQUIRED", "Text-to-speech"),
     DependencyMeta("pyautogui", "pyautogui>=0.9.54", "REQUIRED", "Desktop automation"),
     DependencyMeta("pygetwindow", "pygetwindow>=0.0.9", "REQUIRED", "Window enumeration"),
-    DependencyMeta("ddgs", "duckduckgo-search>=6.0", "REQUIRED", "Web search"),
-    DependencyMeta("duckduckgo_search", "duckduckgo-search>=6.0", "REQUIRED", "Web search"),
+    DependencyMeta("ddgs", "ddgs>=6.0", "REQUIRED", "Web search"),
     DependencyMeta("psutil", "psutil>=5.9", "REQUIRED", "System monitoring"),
 )
 
@@ -235,23 +235,29 @@ def render_markdown_report(catalog: Dict[str, Dict[str, "DependencyMeta"]]) -> s
 
 
 def write_requirements(path: Optional[Path] = None) -> Path:
+    """Regenerate requirements.txt from pyproject.toml.
+
+    ``pyproject.toml`` is the authoritative manifest; requirements.txt is a
+    generated convenience view of its core dependencies and optional extras.
+    """
     if path is None:
         path = REPO / "requirements.txt"
-    required = sorted(REQUIRED_DEPS, key=lambda m: m.import_name)
-    optional = sorted(OPTIONAL_DEPS, key=lambda m: m.import_name)
+    with (REPO / "pyproject.toml").open("rb") as handle:
+        project = tomllib.load(handle)["project"]
     out_lines: List[str] = [
-        "# Auto-generated minimum versions from scripts/scan_dependencies.py",
+        "# Generated from pyproject.toml ([project].dependencies / optional-dependencies).",
         "# Re-generate with: py scripts/scan_dependencies.py --write-requirements",
         "",
+        *project.get("dependencies", []),
     ]
-    for meta in required:
-        out_lines.append(meta.pip_name)
-    if optional:
-        out_lines.append("# Optional extras")
-        for meta in optional:
-            out_lines.append(f"# {meta.pip_name}")
-    body = "\n".join(out_lines) + "\n"
-    path.write_text(body, encoding="utf-8")
+    extras = project.get("optional-dependencies", {})
+    if extras:
+        out_lines.append("")
+        out_lines.append("# Optional extras (py -m pip install -e '.[<extra>]')")
+        for name, reqs in sorted(extras.items()):
+            out_lines.append(f"# [{name}]")
+            out_lines.extend(f"# {req}" for req in reqs)
+    path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     return path
 
 
@@ -268,8 +274,8 @@ if __name__ == "__main__":
         #   py scan_dependencies.py --write-requirements [path]
         if len(sys.argv) > 2 and not sys.argv[2].startswith("-"):
             out_path = Path(sys.argv[2])
-        elif "REQUIREMENTS_PATH" in os.environ:
-            out_path = Path(os.environ["REQUIREMENTS_PATH"])
+        elif "REQUIREMENTS_PATH" in _os.environ:
+            out_path = Path(_os.environ["REQUIREMENTS_PATH"])
     if out_path:
         print(write_requirements(out_path))
     elif len(sys.argv) > 1 and "--write-requirements" in sys.argv:

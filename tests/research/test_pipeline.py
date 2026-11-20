@@ -2,17 +2,17 @@
 
 Offline vs network split:
   * ``@pytest.mark.offline`` — all data-structure, limit, security, and
-    mocked-pipeline tests. These mock ``research.fetcher.search_web`` (so the
+    mocked-pipeline tests. These mock ``research.pipeline.search_web`` (so the
     real DDGS network search never runs) AND ``get_llm_provider`` (so the
     pipeline never reaches a live LLM). They run deterministically offline.
   * ``@pytest.mark.network`` — the one test that exercises the real web search
     path (un-mocked). It carries a short timeout; a network timeout yields a
     clean failure/skip rather than hanging the suite.
 
-IMPORTANT: the pipeline's search step calls ``research.fetcher.search_web``,
+IMPORTANT: the pipeline's search step calls ``research.pipeline.search_web``,
 which imports ``DDGS`` from ``ddgs`` directly. Patching ``research.pipeline.DDGS``
 would NOT stop a live search -- the correct seam to mock is
-``research.fetcher.search_web``.
+``research.pipeline.search_web``.
 """
 
 from __future__ import annotations
@@ -164,8 +164,8 @@ class TestResearchPipeline:
 
     def test_single_source_research(self):
         """Research with a single mocked search result (no network/LLM)."""
-        with patch("research.fetcher.search_web", return_value=[
-            {"title": "Test Page", "href": "https://example.com", "body": "Paris is the capital of France."}
+        with patch("research.pipeline.search_web", return_value=[
+            {"title": "Test", "href": "https://example.com", "body": "Paris is capital"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
              patch("research.pipeline.extract_content") as mock_extract, \
@@ -189,7 +189,7 @@ class TestResearchPipeline:
 
     def test_multi_source_research(self):
         """Research with multiple mocked search results (no network/LLM)."""
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Source A", "href": "https://a.com", "body": "Source A says Paris"},
             {"title": "Source B", "href": "https://b.com", "body": "Source B confirms Paris"},
         ]), \
@@ -215,7 +215,7 @@ class TestResearchPipeline:
 
     def test_fetch_failure_handling(self):
         """Handling of fetch failures (search mocked, no LLM)."""
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Fail", "href": "https://fail.com", "body": "x"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -228,7 +228,7 @@ class TestResearchPipeline:
 
     def test_max_steps_enforcement(self):
         limits = ResearchLimits(max_steps=2, max_searches=2, max_fetches=2)
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -245,7 +245,7 @@ class TestResearchPipeline:
 
     def test_max_fetches_enforcement(self):
         limits = ResearchLimits(max_fetches=2)
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -264,7 +264,7 @@ class TestResearchPipeline:
     def test_max_content_per_page(self):
         limits = ResearchLimits(max_content_per_page=100)
         large_content = "<html><title>T</title><body><main>" + "X" * 1000 + "</main></body></html>"
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -282,7 +282,7 @@ class TestResearchPipeline:
 
     def test_duplicate_url_handling(self):
         limits = ResearchLimits(max_fetches=5)
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -300,7 +300,7 @@ class TestResearchPipeline:
 
     def test_conflicting_sources(self):
         """Handling of conflicting sources (mocked)."""
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Source A", "href": "https://a.com", "body": "Source A says X"},
             {"title": "Source B", "href": "https://b.com", "body": "Source B says Y"},
         ]), \
@@ -325,7 +325,7 @@ class TestResearchPipeline:
 
     def test_citation_preservation(self):
         """Citations are preserved in output (mocked)."""
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Paris is capital"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -347,7 +347,7 @@ class TestResearchPipeline:
 
     def test_unsupported_claims_not_made(self):
         """With no successful sources, synthesis indicates lack of sources."""
-        with patch("research.fetcher.search_web", return_value=[]), \
+        with patch("research.pipeline.search_web", return_value=[]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
              patch("research.pipeline.get_llm_provider", return_value=None):
             mock_fetch.return_value = FetchResult(success=False, url="https://example.com", error="All failed")
@@ -358,7 +358,7 @@ class TestResearchPipeline:
 
     def test_llm_synthesis_failure_fallback(self):
         """Fallback when LLM synthesis is unavailable (mocked None)."""
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -378,7 +378,7 @@ class TestResearchPipeline:
 
     def test_empty_search_results(self):
         """Empty search results handled gracefully (no network/LLM)."""
-        with patch("research.fetcher.search_web", return_value=[]), \
+        with patch("research.pipeline.search_web", return_value=[]), \
              patch("research.pipeline.get_llm_provider", return_value=None):
             pipeline = ResearchPipeline(config=self.config, limits=self.limits)
             result = pipeline.research("Very obscure query that returns nothing xyz123")
@@ -395,7 +395,7 @@ class TestResearchPipeline:
         <script>eval(atob('ZXZhbChhdG9iKCcnKSk='))</script>
         </main></body></html>
         """
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Evil", "href": "https://evil.com", "body": "malicious content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -446,7 +446,7 @@ class TestResearchPipeline:
             max_steps=2, max_searches=1, max_fetches=1,
             max_content_per_page=100, max_total_content=200, overall_timeout_s=5.0,
         )
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -467,7 +467,7 @@ class TestResearchPipeline:
         """Overall timeout handling (fetch mocked so this stays offline)."""
         limits = ResearchLimits(overall_timeout_s=0.001)
         import time
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Content"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -543,7 +543,7 @@ class TestRunResearch:
     """Test convenience function (mocked)."""
 
     def test_run_research(self):
-        with patch("research.fetcher.search_web", return_value=[
+        with patch("research.pipeline.search_web", return_value=[
             {"title": "Test", "href": "https://example.com", "body": "Paris is capital"}
         ]), \
              patch("research.pipeline.fetch_url") as mock_fetch, \
@@ -724,7 +724,7 @@ class TestPhaseSResearchCallOptimization:
     # ---- C. NO-SOURCE / FAILED-RESEARCH PATH: safe-fail preserved ----
     def test_no_source_path_safe_fails(self):
         synth = self._fake_synth([])
-        with patch("research.fetcher.search_web", return_value=[]):
+        with patch("research.pipeline.search_web", return_value=[]):
             pipe = ResearchPipeline(synthesizer=synth)
             result = pipe.research("Calculate 127 x 43 and tell me the result.")
         # No crash; synthesis reflects no usable sources; safe-fail preserved.

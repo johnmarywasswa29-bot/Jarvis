@@ -32,6 +32,16 @@ class AuthError(Exception):
         super().__init__(message)
 
 
+def _localhost_auth_bypass(config: JarvisConfig) -> bool:
+    """Localhost is exempt from token auth unless explicitly required."""
+    return config.web_host == "127.0.0.1" and not config.web_auth_required_localhost
+
+
+def is_auth_required(config: JarvisConfig) -> bool:
+    """Whether callers must present credentials for this configuration."""
+    return config.web_auth_enabled or not _localhost_auth_bypass(config)
+
+
 def validate_config(config: JarvisConfig) -> None:
     """Validate security configuration.
     
@@ -73,14 +83,12 @@ async def require_auth(
     Raises:
         HTTPException: 401 if authentication required but missing/invalid.
     """
-    # Skip if auth not enabled and not required for this host
-    if not config.web_auth_enabled:
-        if config.web_auth_required_localhost or config.web_host == "127.0.0.1":
-            return  # No auth required for localhost when not required
-        # Auth enabled but not required locally - still allow
-        if config.web_host == "127.0.0.1":
-            return
-    
+    # Skip only when local auth is not required; non-localhost binding must
+    # always present credentials (validate_config enforces this at startup).
+    if not is_auth_required(config):
+        return
+
+
     # Auth is required (either globally enabled or non-localhost binding)
     if not credentials:
         raise HTTPException(
@@ -110,13 +118,12 @@ async def require_ws_auth(
     Raises:
         WebSocketException: 4001 if authentication required but missing/invalid.
     """
-    # Skip if auth not enabled and not required for this host
-    if not config.web_auth_enabled:
-        if config.web_auth_required_localhost or config.web_host == "127.0.0.1":
-            return
-        if config.web_host == "127.0.0.1":
-            return
-    
+    # Skip only when local auth is not required; non-localhost binding must
+    # always present a token (validate_config enforces this at startup).
+    if not config.web_auth_enabled and _localhost_auth_bypass(config):
+        return
+
+
     # Auth is required
     token = websocket.query_params.get("token")
     if not token:

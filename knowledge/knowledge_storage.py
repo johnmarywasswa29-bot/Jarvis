@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import atexit
+import gc
 import hashlib
 import json
 import sqlite3
@@ -65,13 +66,23 @@ class KnowledgeStorage:
     def close(self) -> None:
         try:
             client = getattr(self, "_chroma_client", None)
+            collection = getattr(self, "_chroma", None)
+            self._chroma_client = None
+            self._chroma = None
             if client is not None:
                 try:
-                    client.close()
+                    closer = getattr(client, "close", None)
+                    if callable(closer):
+                        closer()
+                    else:
+                        del collection
+                        clear_cache = getattr(client, "clear_system_cache", None)
+                        if callable(clear_cache):
+                            clear_cache()
+                        del client
+                        gc.collect()
                 except Exception:
                     pass
-                self._chroma_client = None
-                self._chroma = None
         except Exception:
             pass
         try:

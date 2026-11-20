@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -52,9 +52,11 @@ class TestDismissalMemory(unittest.TestCase):
     def test_decay_reduces_score(self):
         d = DismissalMemory()
         s = Suggestion(title="x", priority=0.8)
-        d.record_dismissal(s)
-        decayed = d.decay_score(s)
+        with patch("proactive.suggestion_engine.time.time", side_effect=[0.0, 43200.0]):
+            d.record_dismissal(s)
+            decayed = d.decay_score(s)
         assert decayed < s.priority
+        assert abs(decayed - 0.4) < 1e-9
 
 
 class TestNotificationQueue(unittest.TestCase):
